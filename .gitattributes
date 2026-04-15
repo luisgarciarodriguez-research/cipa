@@ -1,0 +1,152 @@
+# =============================================================================
+# CIPA — .gitattributes
+# =============================================================================
+# Sections:
+#   1. Default normalization rule
+#   2. Python source files
+#   3. Documentation and configuration text files
+#   4. Binary files — data and assets
+#   5. git archive exports (export-ignore)
+#   6. GitHub Linguist overrides
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# 1. Default normalization rule
+#    `text=auto` tells git to auto-detect text vs. binary files and normalise
+#    line endings in the repository to LF on every commit (eol=lf).
+#    On checkout, Windows users get CRLF locally (if core.autocrlf=true),
+#    while Linux/macOS users always see LF — matching ruff's `line-ending = lf`.
+# -----------------------------------------------------------------------------
+*                   text=auto eol=lf
+
+
+# -----------------------------------------------------------------------------
+# 2. Python source files
+#    `text eol=lf`  — force LF in both the index and working tree on all OSes.
+#    `diff=python`  — use git's built-in Python hunk header detector so that
+#                     diffs show the enclosing function/class name in the @@
+#                     header instead of a generic line number.
+# -----------------------------------------------------------------------------
+*.py                text eol=lf diff=python
+*.pyi               text eol=lf diff=python
+
+
+# -----------------------------------------------------------------------------
+# 3. Documentation and configuration text files
+#    All marked as `text eol=lf` to enforce consistent line endings.
+#    No special diff driver is needed; git's default context diff is fine.
+# -----------------------------------------------------------------------------
+
+# Markup
+*.md                text eol=lf
+*.rst               text eol=lf
+
+# Configuration / packaging
+*.toml              text eol=lf
+*.cfg               text eol=lf
+*.ini               text eol=lf
+
+# Data interchange (tracked JSON files: experiments/VALIDATION_REPORT schema)
+*.json              text eol=lf
+
+# CI / automation
+*.yml               text eol=lf
+*.yaml              text eol=lf
+
+# Shell scripts (if any are added in the future)
+*.sh                text eol=lf
+
+# Plain text
+*.txt               text eol=lf
+
+
+# -----------------------------------------------------------------------------
+# 4. Binary files — data and scientific assets
+#    `binary` is shorthand for `-text -diff`: git will not attempt to convert
+#    line endings (which would corrupt the file) and will not try to produce
+#    a human-readable diff (showing only "Binary files differ").
+#    These formats are excluded from the repo via .gitignore, but explicit
+#    binary marking prevents accidental corruption if any ever slip through.
+# -----------------------------------------------------------------------------
+
+# NumPy arrays
+*.npy               binary
+*.npz               binary
+
+# MATLAB / SciPy matrices
+*.mat               binary
+
+# HDF5
+*.h5                binary
+*.hdf5              binary
+
+# Columnar formats
+*.parquet           binary
+*.feather           binary
+*.arrow             binary
+
+# Python pickle
+*.pkl               binary
+*.pickle            binary
+
+# PDF documents
+*.pdf               binary
+
+# Images (for any figures added to the repo in the future)
+*.png               binary
+*.jpg               binary
+*.jpeg              binary
+*.gif               binary
+*.svg               text eol=lf
+
+
+# -----------------------------------------------------------------------------
+# 5. git archive exports (export-ignore)
+#    Files and directories marked with `export-ignore` are excluded when
+#    someone runs `git archive` or downloads the repo ZIP from GitHub.
+#    This keeps the distributable snapshot clean: only the installable
+#    library, tests, experiments, and top-level docs are included.
+#
+#    Excluded because they are internal development process artefacts:
+#      specs/            — 12 SPEC documents (implementation contracts)
+#      design/           — architecture and patterns docs
+#      plans/            — WBS, critical path, risk register, milestones
+#      alternative_plans — discarded design alternatives
+#      paper/            — working copy of the manuscript PDF
+# -----------------------------------------------------------------------------
+specs/              export-ignore
+design/             export-ignore
+plans/              export-ignore
+alternative_plans/  export-ignore
+paper/              export-ignore
+
+# Hidden tooling directories (already gitignored, but belt-and-suspenders)
+.claude/            export-ignore
+.ruff_cache/        export-ignore
+.pytest_cache/      export-ignore
+
+
+# -----------------------------------------------------------------------------
+# 6. GitHub Linguist overrides
+#    GitHub's Linguist library analyses every tracked file to compute the
+#    language breakdown shown on the repository page. Without overrides,
+#    the 21 Markdown documents in specs/, design/, and plans/ would inflate
+#    the Markdown percentage and dilute the Python share, giving a misleading
+#    picture of the project.
+#
+#    linguist-documentation=true  — treated as prose, excluded from stats.
+#    linguist-generated=true      — excluded from stats and search indexing.
+# -----------------------------------------------------------------------------
+
+# Internal process documentation — exclude from language stats
+specs/**            linguist-documentation=true
+design/**           linguist-documentation=true
+plans/**            linguist-documentation=true
+alternative_plans/**  linguist-documentation=true
+
+# Experiment results report — prose, not source code
+experiments/VALIDATION_REPORT.md  linguist-documentation=true
+
+# Generated packaging metadata
+src/*.egg-info/**   linguist-generated=true
