@@ -10,7 +10,7 @@ Users configure verbosity via:
 
 This module is part of the CIPA software package, companion implementation to:
 
-    García Rodríguez, L., Neme Castillo, J. A., & Gómez Adorno, H. M. (2026).
+    García Rodríguez, L., Neme Castillo, J. A., Gómez Adorno, H. M., & Fuentes Pineda, G. (2026).
     CIPA: A Multi-Domain Statistical Framework for Characterizing Imbalanced
     Datasets and Computing a Difficulty Score.
     COMIA 2026 — XVIII Congreso Mexicano de Inteligencia Artificial.

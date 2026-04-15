@@ -4,7 +4,7 @@ Imbalanced Datasets and Computing a Difficulty Score.
 Implements the four-stage CIPA framework (Characterization, Indexing,
 Profiling, Action) as described in:
 
-    García Rodríguez, L., Neme Castillo, J. A., & Gómez Adorno, H. M. (2026).
+    García Rodríguez, L., Neme Castillo, J. A., Gómez Adorno, H. M., & Fuentes Pineda, G. (2026).
     CIPA: A Multi-Domain Statistical Framework for Characterizing Imbalanced
     Datasets and Computing a Difficulty Score.
     COMIA 2026 — XVIII Congreso Mexicano de Inteligencia Artificial.

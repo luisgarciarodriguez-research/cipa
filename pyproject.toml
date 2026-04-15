@@ -10,6 +10,7 @@ authors = [
     { name = "Luis García Rodríguez", email = "luis.garcia@unam.edu" },
     { name = "José Antonio Neme Castillo", email = "antonioneme@gmail.com" },
     { name = "Helena Montserrat Gómez Adorno", email = "helena.gomez@iimas.unam.mx" },
+    { name = "Gibran Fuentes Pineda", email = "gibranfp@unam.mx" },
 ]
 readme = "README.md"
 requires-python = ">=3.11"

@@ -23,6 +23,11 @@ Instituto de Investigaciones en Matemáticas Aplicadas y en Sistemas (IIMAS)
 Universidad Nacional Autónoma de México (UNAM)
 helena.gomez@iimas.unam.mx
 
+**Gibran Fuentes Pineda**
+Instituto de Investigaciones en Matemáticas Aplicadas y en Sistemas (IIMAS)
+Universidad Nacional Autónoma de México (UNAM)
+gibranfp@unam.mx
+
 ---
 
 ## Citation

@@ -252,7 +252,8 @@ If you use CIPA in your research, please cite:
              Imbalanced Datasets and Computing a Difficulty Score},
   author  = {Garc\'{i}a Rodr\'{i}guez, Luis and
              Neme Castillo, Jos\'{e} Antonio and
-             G\'{o}mez Adorno, Helena Montserrat},
+             G\'{o}mez Adorno, Helena Montserrat and
+             Fuentes Pineda, Gibr\'{a}n},
   journal = {TODO: venue},
   year    = {2026},
   doi     = {TODO: doi},
@@ -263,4 +264,4 @@ If you use CIPA in your research, please cite:
 
 ## License
 
-MIT © Luis García Rodríguez, IIMAS-UNAM
+MIT © Luis García Rodríguez, José Antonio Neme Castillo, Helena Montserrat Gómez Adorno, Gibran Fuentes Pineda — IIMAS-UNAM
