@@ -19,7 +19,12 @@
 #    The full datasets/ directory is excluded. Users must download
 #    each dataset independently; see datasets/README.md for instructions.
 # -----------------------------------------------------------------------------
-datasets/
+#datasets/
+datasets/**/*.txt
+datasets/**/*.data
+datasets/**/*.names
+datasets/**/*.cct
+datasets/**/*.pdf
 
 # Safety net: block individual data formats even outside datasets/
 *.csv

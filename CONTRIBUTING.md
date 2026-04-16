@@ -84,3 +84,11 @@ Contributions most likely to be accepted:
 - Additional test coverage.
 - Documentation improvements.
 - New dataset loaders in `experiments/`.
+
+---
+
+## Adding a new dataset
+
+See [experiments/ADDING_DATASETS.md](experiments/ADDING_DATASETS.md) for a
+step-by-step guide covering the loader function, registration in `LOADERS` and
+`TIER`, optional ground-truth values, and the verification checklist.
