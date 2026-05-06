@@ -1,0 +1,10 @@
+# CIPA — runtime dependencies
+# Minimum version bounds match pyproject.toml.
+# For exact environment reproduction use: pip install -r requirements-dev.txt
+#
+# Install:
+#   pip install -r requirements.txt
+
+numpy>=1.24
+scipy>=1.10
+scikit-learn>=1.3

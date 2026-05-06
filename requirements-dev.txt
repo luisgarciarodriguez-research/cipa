@@ -1,0 +1,22 @@
+# CIPA — development + experiment dependencies (exact pinned versions)
+# Includes: runtime deps + pandas (experiments) + test/lint tools.
+# Tested on Python 3.11, Linux x86-64.
+#
+# Install:
+#   pip install -e ".[dev]"          # via pyproject.toml (recommended)
+#   pip install -r requirements-dev.txt  # pinned exact versions
+
+# --- Runtime ---
+numpy==1.26.4
+scipy==1.13.1
+scikit-learn==1.7.2
+
+# --- Experiments (validate_table2.py, compute_rq1_stats.py) ---
+pandas==2.2.2
+
+# --- Testing ---
+pytest==7.4.4
+pytest-cov==7.1.0
+
+# --- Linting / Formatting ---
+ruff==0.15.8

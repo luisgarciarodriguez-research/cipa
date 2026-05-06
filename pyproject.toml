@@ -8,9 +8,9 @@ version = "1.1.0"
 description = "CIPA: A Multi-Domain Statistical Framework for Characterizing Imbalanced Datasets and Computing a Difficulty Score"
 authors = [
     { name = "Luis García Rodríguez", email = "luis.garcia@unam.edu" },
-    { name = "José Antonio Neme Castillo", email = "antonioneme@gmail.com" },
+    { name = "José Antonio Neme Castillo", email = "antonio.neme@iimas.unam.mx" },
     { name = "Helena Montserrat Gómez Adorno", email = "helena.gomez@iimas.unam.mx" },
-    { name = "Gibran Fuentes Pineda", email = "gibranfp@unam.mx" },
+    { name = "Gibrán Fuentes Pineda", email = "gibranfp@unam.mx" },
 ]
 readme = "README.md"
 requires-python = ">=3.11"
@@ -37,11 +37,19 @@ dependencies = [
     "scikit-learn>=1.3",
 ]
 
+[project.urls]
+Homepage = "https://github.com/luisgarciarodriguez-research/cipa"
+Repository = "https://github.com/luisgarciarodriguez-research/cipa"
+"Bug Tracker" = "https://github.com/luisgarciarodriguez-research/cipa/issues"
+
 [project.optional-dependencies]
+experiments = [
+    "pandas>=2.0",
+]
 dev = [
+    "pandas>=2.0",
     "pytest>=7.0",
     "pytest-cov>=4.0",
-    "pandas>=2.0",
     "ruff>=0.4",
 ]
 

@@ -1,0 +1,102 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software in your research, please cite it using the
+  metadata below. To cite the associated research paper, use the
+  preferred-citation entry.
+
+type: software
+title: >-
+  CIPA: A Multi-Domain Statistical Framework for Characterizing
+  Imbalanced Datasets and Computing a Difficulty Score
+version: "1.1.0"
+date-released: "2026-05-05"
+license: MIT
+url: "https://github.com/luisgarciarodriguez-research/cipa"
+repository-code: "https://github.com/luisgarciarodriguez-research/cipa"
+
+abstract: >-
+  CIPA (Characterization, Indexing, Profiling, Action) is a domain-agnostic
+  Python framework that characterizes imbalanced binary classification datasets
+  along seven non-redundant complexity dimensions (D1-D7) and aggregates them
+  into a normalized Difficulty Score (DS) in [0, 1]. It produces a structural
+  fingerprint (Complexity Signature I-V) and actionable recommendations for
+  evaluation metric selection, preprocessing strategy, model family, and
+  validation protocol — all without training any model. Validated across 13
+  publicly available datasets from five domains, DS achieves Spearman
+  rho = -0.71 against reference AUC-PR values, significantly outperforming
+  the imbalance ratio alone (Wilcoxon p = 0.040).
+
+keywords:
+  - imbalanced learning
+  - data complexity measures
+  - classification difficulty
+  - difficulty score
+  - meta-learning
+  - preprocessing selection
+  - class overlap
+  - instance hardness
+  - sub-concept fragmentation
+
+authors:
+  - family-names: "García Rodríguez"
+    given-names: "Luis"
+    email: "luis.garcia@unam.edu"
+    affiliation: "Instituto de Investigaciones en Matemáticas Aplicadas y en Sistemas (IIMAS), Universidad Nacional Autónoma de México (UNAM)"
+    orcid: "https://orcid.org/0009-0004-9514-5508"
+
+  - family-names: "Neme Castillo"
+    given-names: "José Antonio"
+    email: "antonio.neme@iimas.unam.mx"
+    affiliation: "Instituto de Investigaciones en Matemáticas Aplicadas y en Sistemas (IIMAS), Universidad Nacional Autónoma de México (UNAM)"
+    orcid: "https://orcid.org/0000-0002-9952-1943"
+
+  - family-names: "Gómez Adorno"
+    given-names: "Helena Montserrat"
+    email: "helena.gomez@iimas.unam.mx"
+    affiliation: "Instituto de Investigaciones en Matemáticas Aplicadas y en Sistemas (IIMAS), Universidad Nacional Autónoma de México (UNAM)"
+    orcid: "https://orcid.org/0000-0002-6966-9912"
+
+  - family-names: "Fuentes Pineda"
+    given-names: "Gibrán"
+    email: "gibranfp@unam.mx"
+    affiliation: "Instituto de Investigaciones en Matemáticas Aplicadas y en Sistemas (IIMAS), Universidad Nacional Autónoma de México (UNAM)"
+    orcid: "https://orcid.org/0000-0002-1964-8208"
+
+preferred-citation:
+  type: conference-paper
+  title: >-
+    CIPA: A Multi-Domain Statistical Framework for Characterizing
+    Imbalanced Datasets and Computing a Difficulty Score
+  year: 2026
+  # doi: "10.XXXX/XXXXXX"  # update when assigned
+
+  collection-title: >-
+    Proceedings of the XVIII Congreso Mexicano de Inteligencia Artificial
+    (COMIA 2026)
+  conference:
+    name: "XVIII Congreso Mexicano de Inteligencia Artificial (COMIA 2026)"
+
+  authors:
+    - family-names: "García Rodríguez"
+      given-names: "Luis"
+      email: "luis.garcia@unam.edu"
+      affiliation: "Instituto de Investigaciones en Matemáticas Aplicadas y en Sistemas (IIMAS), Universidad Nacional Autónoma de México (UNAM)"
+      orcid: "https://orcid.org/0009-0004-9514-5508"
+
+    - family-names: "Neme Castillo"
+      given-names: "José Antonio"
+      email: "antonio.neme@iimas.unam.mx"
+      affiliation: "Instituto de Investigaciones en Matemáticas Aplicadas y en Sistemas (IIMAS), Universidad Nacional Autónoma de México (UNAM)"
+      orcid: "https://orcid.org/0000-0002-9952-1943"
+
+    - family-names: "Gómez Adorno"
+      given-names: "Helena Montserrat"
+      email: "helena.gomez@iimas.unam.mx"
+      affiliation: "Instituto de Investigaciones en Matemáticas Aplicadas y en Sistemas (IIMAS), Universidad Nacional Autónoma de México (UNAM)"
+      orcid: "https://orcid.org/0000-0002-6966-9912"
+
+    - family-names: "Fuentes Pineda"
+      given-names: "Gibrán"
+      email: "gibranfp@unam.mx"
+      affiliation: "Instituto de Investigaciones en Matemáticas Aplicadas y en Sistemas (IIMAS), Universidad Nacional Autónoma de México (UNAM)"
+      orcid: "https://orcid.org/0000-0002-1964-8208"
