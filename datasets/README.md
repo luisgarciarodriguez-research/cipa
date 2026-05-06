@@ -55,8 +55,8 @@ datasets/
 
 | Field | Value |
 |-------|-------|
-| IR (full) | ~745:1 |
-| N | 6,362,620 |
+| IR (full) | ~772.7:1 |
+| N | 6,354,407 |
 | Features | 9 |
 | Source | Kaggle — Edgar Lopez-Rojas |
 | URL | https://www.kaggle.com/datasets/ealaxi/paysim1 |

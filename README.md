@@ -77,11 +77,11 @@ CIPAResult
 
 | ID | Name | What it measures |
 |----|------|-----------------|
-| D1 | Imbalance Distribution | How skewed the class ratio is (`1 − 1/log₂(IR+1)`) |
+| D1 | Imbalance Distribution | How skewed the class ratio is (`1 − H(Y)`, binary entropy of the label) |
 | D2 | Class Overlap | Fraction of instances in the overlap region (F3 + N1 + kDN) |
 | D3 | Instance Hardness | Proportion of minority instances that are borderline, rare, or outliers (Napierała–Stefanowski typology) |
 | D4 | Sub-concept Fragmentation | How fragmented the minority class is across DBSCAN clusters (ECindex) |
-| D5 | Effective Dimensionality | Ratio of informative dimensions to total features (PCA-based) |
+| D5 | Effective Dimensionality | Spectral entropy of PCA eigenvalues — how uniformly variance is spread across components |
 | D6 | Feature Informativeness | Fraction of features with low mutual information with the label |
 | D7 | Boundary Complexity | Difficulty of the decision boundary (LinearSVC error + N2 ratio) |
 
@@ -108,8 +108,8 @@ Default weights reflect the empirical importance found in the paper (D2 and D3 d
 |-----|------|-------------|
 | I | Imbalance-dominated | All of D2–D7 < 0.25 (uniformly low; mild imbalance is the only issue) |
 | II | Overlap-dominated | D2 > 0.55 and D2 ≥ D1 |
-| III | Fragmented | D4 is highest among D1–D5 and D4 > 0.50 |
-| IV | Dimensionality-dominated | D5 is highest among D1–D5, D5 > 0.55, and D5 > D2 + 0.10 |
+| III | Fragmented | D4 is highest among {D1, D2, D4, D5} and D4 > 0.50 |
+| IV | Dimensionality-dominated | D5 is highest among {D1, D2, D4, D5}, D5 > 0.55, and D5 > D2 + 0.10 |
 | V | Compound | Multiple elevated dimensions or no single dominant driver |
 
 ### Stage A — Action recommendations

@@ -44,28 +44,30 @@ from pathlib import Path
 import numpy as np
 
 # ---------------------------------------------------------------------------
-# Ground truth — Table 2 of the paper
+# Official v1.1.0 results — source: experiments/VALIDATION_REPORT.md §2
+# These values are reproduced in Table 2 of the paper.
 # Columns: D1-D7, DS, band (E/H/M/L), sig (I-V)
+# Tier-2 datasets (marked * in VALIDATION_REPORT) use N_eff=10k subsample.
 # ---------------------------------------------------------------------------
 TABLE_2: dict[str, dict] = {
-    "CreditCard":   {"D1":.89,"D2":.81,"D3":.78,"D4":.72,"D5":.12,"D6":.44,"D7":.68,"DS":.83,"band":"E","sig":"V"},
-    "PaySim":       {"D1":.91,"D2":.77,"D3":.74,"D4":.66,"D5":.10,"D6":.48,"D7":.61,"DS":.81,"band":"E","sig":"V"},
-    "IEEE-CIS":     {"D1":.51,"D2":.71,"D3":.63,"D4":.52,"D5":.61,"D6":.44,"D7":.57,"DS":.59,"band":"H","sig":"II"},
-    "Yeast-ME3":    {"D1":.64,"D2":.79,"D3":.68,"D4":.61,"D5":.55,"D6":.61,"D7":.72,"DS":.68,"band":"H","sig":"V"},
-    "CIC-IDS":      {"D1":.52,"D2":.68,"D3":.61,"D4":.48,"D5":.14,"D6":.38,"D7":.58,"DS":.57,"band":"H","sig":"II"},
-    "TCGA-BRCA":    {"D1":.32,"D2":.58,"D3":.49,"D4":.31,"D5":.81,"D6":.72,"D7":.44,"DS":.54,"band":"H","sig":"IV"},
-    "CWRU":         {"D1":.30,"D2":.41,"D3":.36,"D4":.62,"D5":.22,"D6":.19,"D7":.28,"DS":.37,"band":"M","sig":"III"},
-    "PIMA":         {"D1":.19,"D2":.61,"D3":.53,"D4":.28,"D5":.21,"D6":.47,"D7":.58,"DS":.43,"band":"M","sig":"II"},
-    "SEU-Gearbox":  {"D1":.29,"D2":.44,"D3":.38,"D4":.58,"D5":.31,"D6":.28,"D7":.39,"DS":.38,"band":"M","sig":"III"},
-    "Ecoli-iMU":    {"D1":.44,"D2":.48,"D3":.39,"D4":.27,"D5":.38,"D6":.33,"D7":.41,"DS":.39,"band":"M","sig":"II"},
-    "NSL-KDD":      {"D1":.31,"D2":.22,"D3":.18,"D4":.11,"D5":.08,"D6":.14,"D7":.21,"DS":.21,"band":"L","sig":"I"},
-    "SVMGUIDE1":    {"D1":.05,"D2":.11,"D3":.08,"D4":.04,"D5":.04,"D6":.06,"D7":.13,"DS":.09,"band":"L","sig":"I"},
-    "BreastCancer": {"D1":.09,"D2":.08,"D3":.06,"D4":.03,"D5":.03,"D6":.07,"D7":.11,"DS":.08,"band":"L","sig":"I"},
+    "CreditCard":   {"D1":.7170,"D2":.2997,"D3":.2039,"D4":.5337,"D5":.0038,"D6":.6819,"D7":.1394,"DS":.3547,"band":"M","sig":"V"},
+    "PaySim":       {"D1":.3228,"D2":.3565,"D3":.1114,"D4":.4398,"D5":.5328,"D6":.7368,"D7":.0905,"DS":.3502,"band":"M","sig":"V"},
+    "IEEE-CIS":     {"D1":.7811,"D2":.3770,"D3":.9219,"D4":.6989,"D5":.0000,"D6":.9642,"D7":.1562,"DS":.5679,"band":"H","sig":"V"},
+    "Yeast-ME3":    {"D1":.5006,"D2":.2138,"D3":.2025,"D4":.2714,"D5":.8581,"D6":.9199,"D7":.1994,"DS":.3964,"band":"M","sig":"IV"},
+    "CIC-IDS":      {"D1":.2841,"D2":.2351,"D3":.0504,"D4":.4648,"D5":.2694,"D6":.7447,"D7":.1023,"DS":.2885,"band":"M","sig":"V"},
+    "TCGA-BRCA":    {"D1":.1746,"D2":.2130,"D3":.0654,"D4":.2421,"D5":.7326,"D6":.8792,"D7":.2265,"DS":.3206,"band":"M","sig":"IV"},
+    "CWRU":         {"D1":.5310,"D2":.0078,"D3":.0319,"D4":.4446,"D5":.0520,"D6":.3670,"D7":.0172,"DS":.1787,"band":"L","sig":"V"},
+    "PIMA":         {"D1":.0669,"D2":.5992,"D3":.2848,"D4":.3817,"D5":.2336,"D6":.9346,"D7":.3449,"DS":.4274,"band":"M","sig":"II"},
+    "SEU-Gearbox":  {"D1":.5310,"D2":.0213,"D3":.0000,"D4":.2424,"D5":.4037,"D6":.4666,"D7":.1077,"DS":.2045,"band":"L","sig":"V"},
+    "Ecoli-iMU":    {"D1":.5179,"D2":.2345,"D3":.2286,"D4":.2617,"D5":.6974,"D6":.8192,"D7":.1739,"DS":.3744,"band":"M","sig":"IV"},
+    "NSL-KDD":      {"D1":.0035,"D2":.3412,"D3":.0117,"D4":.6158,"D5":.1291,"D6":.7875,"D7":.2241,"DS":.3064,"band":"M","sig":"III"},
+    "SVMGUIDE1":    {"D1":.0637,"D2":.2739,"D3":.0300,"D4":.5702,"D5":.3527,"D6":.5362,"D7":.0709,"DS":.2664,"band":"M","sig":"III"},
+    "BreastCancer": {"D1":.0474,"D2":.2357,"D3":.0818,"D4":.4940,"D5":.0284,"D6":.6773,"D7":.0875,"DS":.2409,"band":"L","sig":"V"},
 }
 
 BAND_MAP = {"E": "Extreme", "H": "High", "M": "Moderate", "L": "Low"}
-DIM_TOL  = 0.10   # ±0.10 tolerance per dimension (accounts for R-01 formula discrepancies)
-DS_TOL   = 0.10   # ±0.10 tolerance on overall DS
+DIM_TOL  = 0.10   # ±0.10 regression tolerance per dimension
+DS_TOL   = 0.10   # ±0.10 regression tolerance on overall DS
 
 # ---------------------------------------------------------------------------
 # Tier classification
@@ -76,7 +78,7 @@ DS_TOL   = 0.10   # ±0.10 tolerance on overall DS
 # ---------------------------------------------------------------------------
 TIER: dict[str, int] = {
     "CreditCard":   2,   # N=284k,  IR=577  → asymmetric subsample
-    "PaySim":       2,   # N=6.3M,  IR=636  → asymmetric subsample
+    "PaySim":       2,   # N=6.3M,  IR=772.7 → asymmetric subsample
     "IEEE-CIS":     2,   # N=590k,  IR=29   → asymmetric subsample
     "NSL-KDD":      2,   # N=125k,  IR=1.8  → asymmetric subsample
     "CIC-IDS":      2,   # N=2.8M,  IR=~5   → asymmetric subsample
@@ -155,7 +157,7 @@ def load_paysim() -> tuple[np.ndarray, np.ndarray]:
     df["type"] = pd.Categorical(df["type"]).codes
     X = df.drop(columns=["isFraud"]).values.astype(float)
     y = df["isFraud"].values.astype(int)
-    # Full N=6.3M, IR=636 → keep all fraud samples + sample majority
+    # Full N=6.3M, IR=772.7 → keep all fraud samples + sample majority
     return _asymmetric_subsample(X, y, n_target=10_000, minority_label=1, random_state=0)
 
 

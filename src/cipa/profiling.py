@@ -70,16 +70,16 @@ def compute_profile(
     if all(v < low_threshold for v in (d2, d3, d4, d5, d6, d7)):
         sig = "I"
 
-    # Priority 1 - Signature IV: D5 dominates D1-D5, high enough, and leads D2 by margin
+    # Priority 1 - Signature IV: D5 dominates {D1,D2,D4,D5}, high enough, and leads D2 by margin
     elif (
-        d5 == max(d1, d2, d3, d4, d5)
+        d5 == max(d1, d2, d4, d5)
         and d5 > elevation_threshold
         and d5 > d2 + dominance_margin
     ):
         sig = "IV"
 
-    # Priority 2 - Signature III: D4 dominates D1-D5 and exceeds 0.50
-    elif d4 == max(d1, d2, d3, d4, d5) and d4 > 0.50:
+    # Priority 2 - Signature III: D4 dominates {D1,D2,D4,D5} and exceeds 0.50
+    elif d4 == max(d1, d2, d4, d5) and d4 > 0.50:
         sig = "III"
 
     # Priority 3 — Signature II: D2 clearly elevated and at least as large as D1
