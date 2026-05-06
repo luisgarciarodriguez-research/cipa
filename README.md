@@ -66,7 +66,7 @@ pip install -e ".[dev]"   # add test and lint tools
 
 ```bash
 python -c "import cipa; print(cipa.__version__)"
-# 1.1.0
+# 1.2.0
 ```
 
 ---

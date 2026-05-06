@@ -45,7 +45,7 @@ from cipa.types import (
     DimensionResult,
 )
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 __all__ = [
     "DEFAULT_WEIGHTS",

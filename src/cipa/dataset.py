@@ -165,46 +165,57 @@ class CIPADataset:
 
     @property
     def minority_label(self) -> int | bool:
+        """Label value that identifies the minority class C+."""
         return self._minority_label
 
     @property
     def majority_label(self) -> int | bool:
+        """Label value that identifies the majority class C-."""
         return self._majority_label
 
     @property
     def N(self) -> int:
+        """Total number of instances in the dataset."""
         return len(self._y)
 
     @property
     def d(self) -> int:
+        """Number of features (dimensionality) of the feature matrix."""
         return self._X.shape[1]
 
     @property
     def n_minority(self) -> int:
+        """Number of minority class instances (|C+|)."""
         return self._n_minority
 
     @property
     def n_majority(self) -> int:
+        """Number of majority class instances (|C-|)."""
         return self._n_majority
 
     @property
     def IR(self) -> float:
+        """Imbalance Ratio: n_majority / n_minority."""
         return self._n_majority / self._n_minority
 
     @property
     def minority_mask(self) -> np.ndarray:
+        """Boolean mask of shape (N,) that is True for minority class instances."""
         return self._minority_mask
 
     @property
     def majority_mask(self) -> np.ndarray:
+        """Boolean mask of shape (N,) that is True for majority class instances."""
         return self._majority_mask
 
     @property
     def X_minority(self) -> np.ndarray:
+        """Feature matrix rows belonging to the minority class, shape (n_minority, d)."""
         return self._X[self._minority_mask]
 
     @property
     def X_majority(self) -> np.ndarray:
+        """Feature matrix rows belonging to the majority class, shape (n_majority, d)."""
         return self._X[self._majority_mask]
 
     def __repr__(self) -> str:

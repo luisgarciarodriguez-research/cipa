@@ -43,7 +43,42 @@ def compute_d7(
     n2_subsample_size: int = DEFAULT_LARGE_N_SUBSAMPLE,
     random_state: int | None = None,
 ) -> DimensionResult:
-    """Compute D7 = (L1 + N2norm) / 2."""
+    """Compute D7: Boundary Complexity = (L1 + N2norm) / 2.
+
+    Combines two complementary boundary difficulty measures:
+    - L1  (LinearSVC training error): fraction of training instances
+           misclassified by the best linear separator. High L1 indicates
+           a non-linear or highly overlapping boundary.
+    - N2norm (intra/inter-class distance ratio, normalised):
+           N2_raw = Σ intra_dist / Σ inter_dist;
+           N2norm = N2_raw / (1 + N2_raw) ∈ [0, 1).
+           High N2norm means same-class instances are farther from each other
+           than from instances of the opposite class (tangled boundary).
+
+    Parameters
+    ----------
+    dataset : CIPADataset
+        Dataset to analyse.
+    knn_cache : _KNNCache or None
+        Accepted for API consistency with D2/D3; N2 performs its own
+        nearest-neighbor queries and does not use this cache.
+    svc_max_iter : int
+        Maximum iterations for LinearSVC. Non-convergence triggers a fallback
+        L1 = 0.5.
+    n2_max_exact : int
+        Maximum N for exact N2 computation. Larger datasets are subsampled.
+    n2_subsample_size : int
+        Subsample size used when N > n2_max_exact.
+    random_state : int or None
+        Seed for LinearSVC and N2 subsampling.
+
+    Returns
+    -------
+    DimensionResult
+        value      : D7 ∈ [0, 1]. Higher = more complex boundary.
+        components : {"L1", "N2norm", "N2_raw"}
+        metadata   : {"svc_converged", "random_state"}
+    """
     l1_val, converged = compute_l1(dataset.X, dataset.y,
                                    max_iter=svc_max_iter, random_state=random_state)
 

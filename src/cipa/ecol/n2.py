@@ -35,12 +35,44 @@ def compute_n2(
     subsample_size: int = 10_000,
     random_state: int | None = None,
 ) -> tuple[float, bool]:
-    """N2norm ∈ (0, 1]. Higher = more overlap = more difficult.
+    """Compute N2: Intra/Inter-class Distance Ratio, normalised (ECoL measure).
 
-    N2_raw  = sum(intra_dists) / sum(inter_dists)
-    N2norm  = 1 / (1 + N2_raw)
+    For each instance, computes its distance to the nearest same-class neighbor
+    (intra) and to the nearest opposite-class neighbor (inter). Aggregates and
+    normalises via:
 
-    Returns (n2norm, was_subsampled).
+        N2_raw  = Σ intra_dist / Σ inter_dist
+        N2norm  = N2_raw / (1 + N2_raw)  ∈ [0, 1)
+
+    Low N2norm indicates well-separated classes (inter >> intra, easy boundary);
+    high N2norm indicates tangled classes (intra ≈ inter or intra > inter).
+    Returns 0.0 when all inter-class distances are zero (perfect separation).
+
+    For datasets with N > max_exact, a stratified subsample is used.
+
+    Parameters
+    ----------
+    X : np.ndarray, shape (N, d)
+        Feature matrix.
+    y : np.ndarray, shape (N,)
+        Binary label vector.
+    minority_label : int, bool, or None
+        Label of the minority class. If None, inferred from frequency.
+    majority_label : int, bool, or None
+        Label of the majority class. If None, inferred from frequency.
+    max_exact : int
+        Maximum N for exact computation.
+    subsample_size : int
+        Target sample size when N > max_exact.
+    random_state : int or None
+        Seed for stratified subsampling.
+
+    Returns
+    -------
+    n2norm : float
+        N2norm ∈ [0, 1). Higher = more class overlap = harder boundary.
+    was_subsampled : bool
+        True if the dataset was subsampled.
     """
     was_subsampled = False
     if len(X) > max_exact:

@@ -45,7 +45,41 @@ def compute_d2(
     n1_subsample_size: int = DEFAULT_LARGE_N_SUBSAMPLE,
     random_state: int | None = None,
 ) -> DimensionResult:
-    """Compute D2: Class Overlap = alpha*F3 + beta*N1 + gamma*kDN."""
+    """Compute D2: Class Overlap = alpha·F3 + beta·N1 + gamma·kDN.
+
+    Combines three complementary overlap measures:
+    - F3  (Fisher discriminant ratio): feature-range overlap on the most
+           discriminative feature.
+    - N1  (MST boundary fraction): proportion of instances adjacent to a
+           class boundary in the minimum spanning tree.
+    - kDN (k-NN disagreement): fraction of k nearest neighbors with a
+           different class label, averaged over all instances.
+
+    Parameters
+    ----------
+    dataset : CIPADataset
+        Dataset to analyse.
+    knn_cache : _KNNCache or None
+        Pre-fitted k-NN cache shared with D3 and D7. If None, a fresh
+        cache is built from dataset using k.
+    k : int
+        Number of neighbors for kDN. Ignored when knn_cache is provided.
+    weights : tuple of 3 floats (alpha, beta, gamma)
+        Weights for (F3, N1, kDN). Must sum to 1.
+    n1_max_exact : int
+        Maximum N for exact MST computation. Larger datasets are subsampled.
+    n1_subsample_size : int
+        Subsample size used when N > n1_max_exact.
+    random_state : int or None
+        Seed for subsampling reproducibility.
+
+    Returns
+    -------
+    DimensionResult
+        value      : D2 ∈ [0, 1]. Higher = more class overlap.
+        components : {"F3", "N1", "kDN", "alpha", "beta", "gamma"}
+        metadata   : {"k", "n1_subsampled"}
+    """
     alpha, beta, gamma = weights
     if abs(sum(weights) - 1.0) > 1e-9:
         raise ValueError(f"D2 weights must sum to 1.0, got {sum(weights):.10f}")

@@ -42,6 +42,18 @@ class _KNNCache:
         k: int,
         algorithm: str = "ball_tree",
     ) -> None:
+        """Fit a NearestNeighbors model on the full dataset and prepare caches.
+
+        Parameters
+        ----------
+        dataset : CIPADataset
+            Dataset whose feature matrix X is used for fitting.
+        k : int
+            Number of neighbors to retrieve (excluding self). Clamped to N-1
+            if k >= dataset.N.
+        algorithm : str
+            Neighbor search algorithm passed to sklearn NearestNeighbors.
+        """
         if k <= 0:
             raise ValueError(f"k must be > 0, got {k}")
         if k >= dataset.N:
@@ -102,9 +114,35 @@ def _maybe_subsample(
 ) -> tuple[np.ndarray, np.ndarray, bool]:
     """Stratified subsample for large datasets.
 
-    Returns (X_out, y_out, was_subsampled). If len(X) <= max_exact, returns
-    the original arrays unchanged. Otherwise returns a stratified subsample
-    of size subsample_size preserving the minority/majority ratio.
+    If len(X) <= max_exact, the original arrays are returned unchanged.
+    Otherwise a stratified subsample of size subsample_size is drawn,
+    preserving the minority/majority class ratio (minimum 2 minority instances).
+
+    Parameters
+    ----------
+    X : np.ndarray, shape (N, d)
+        Feature matrix.
+    y : np.ndarray, shape (N,)
+        Label vector.
+    minority_label : int or bool
+        Label of the minority class.
+    majority_label : int or bool
+        Label of the majority class.
+    max_exact : int
+        Maximum N for which the full dataset is used without subsampling.
+    subsample_size : int
+        Target sample size when subsampling is triggered.
+    random_state : int or None
+        Seed for the random number generator.
+
+    Returns
+    -------
+    X_out : np.ndarray
+        Feature matrix (original or subsampled).
+    y_out : np.ndarray
+        Label vector (original or subsampled).
+    was_subsampled : bool
+        True if subsampling was applied.
     """
     if len(X) <= max_exact:
         return X, y, False

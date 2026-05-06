@@ -35,9 +35,32 @@ def compute_l1(
     max_iter: int = 2_000,
     random_state: int | None = None,
 ) -> tuple[float, bool]:
-    """L1 ∈ [0, 1]. Higher = more non-linear boundary.
+    """Compute L1: Non-linearity of the linear classifier (ECoL measure).
 
-    Returns (l1, converged). Falls back to 0.5 if SVC does not converge.
+    Trains a LinearSVC with balanced class weights on the full dataset and
+    measures its training error. A high error rate indicates that no linear
+    hyperplane can separate the classes well, implying a complex or non-linear
+    decision boundary. If the SVC does not converge within max_iter, a fallback
+    value of 0.5 is returned and converged is set to False.
+
+    Parameters
+    ----------
+    X : np.ndarray, shape (N, d)
+        Feature matrix.
+    y : np.ndarray, shape (N,)
+        Binary label vector.
+    max_iter : int
+        Maximum number of iterations for LinearSVC.
+    random_state : int or None
+        Seed for LinearSVC reproducibility.
+
+    Returns
+    -------
+    l1 : float
+        L1 ∈ [0, 1]. Higher = more non-linear boundary. Returns 0.5 on
+        non-convergence.
+    converged : bool
+        True if LinearSVC converged within max_iter.
     """
     svc = LinearSVC(
         class_weight="balanced",

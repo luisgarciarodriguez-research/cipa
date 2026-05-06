@@ -93,10 +93,18 @@ def compute_difficulty_score(
 def classify_band(ds: float) -> str:
     """Map a DS value to its interpretation band.
 
-    [0.00, 0.25) → "Low"
-    [0.25, 0.50) → "Moderate"
-    [0.50, 0.75) → "High"
-    [0.75, 1.00] → "Extreme"
+    Parameters
+    ----------
+    ds : float
+        Difficulty Score value in [0, 1].
+
+    Returns
+    -------
+    str
+        "Low"      if ds < 0.25  — unlikely to be significantly challenging.
+        "Moderate" if 0.25 ≤ ds < 0.50  — standard techniques likely sufficient.
+        "High"     if 0.50 ≤ ds < 0.75  — specialized strategies needed.
+        "Extreme"  if ds ≥ 0.75  — fundamental learning challenges.
     """
     if ds < 0.25:
         return "Low"

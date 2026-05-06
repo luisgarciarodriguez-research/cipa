@@ -37,9 +37,39 @@ def compute_n1(
     subsample_size: int = 10_000,
     random_state: int | None = None,
 ) -> tuple[float, bool]:
-    """N1 ∈ [0, 1]. Higher = more borderline instances = more overlap.
+    """Compute N1: Fraction of Borderline Points via the MST (ECoL measure).
 
-    Returns (n1, was_subsampled).
+    Builds the minimum spanning tree of all instances and identifies the
+    borderline set B: all instances incident to at least one MST edge that
+    crosses the class boundary (connects instances of different classes).
+    N1 = |B| / N.
+
+    For datasets with N > max_exact, a stratified subsample of subsample_size
+    instances is used to keep MST construction tractable (O(N²) distance matrix).
+
+    Parameters
+    ----------
+    X : np.ndarray, shape (N, d)
+        Feature matrix.
+    y : np.ndarray, shape (N,)
+        Binary label vector.
+    minority_label : int, bool, or None
+        Label of the minority class. If None, inferred as the less frequent class.
+    majority_label : int, bool, or None
+        Label of the majority class. If None, inferred as the more frequent class.
+    max_exact : int
+        Maximum N for exact (full-dataset) MST computation.
+    subsample_size : int
+        Target sample size when N > max_exact.
+    random_state : int or None
+        Seed for stratified subsampling.
+
+    Returns
+    -------
+    n1 : float
+        N1 ∈ [0, 1]. Higher = more borderline instances = more overlap.
+    was_subsampled : bool
+        True if the dataset was subsampled before MST construction.
     """
     was_subsampled = False
     if len(X) > max_exact:

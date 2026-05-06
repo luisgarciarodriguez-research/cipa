@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cipa"
-version = "1.1.0"
+version = "1.2.0"
 description = "CIPA: A Multi-Domain Statistical Framework for Characterizing Imbalanced Datasets and Computing a Difficulty Score"
 authors = [
     { name = "Luis García Rodríguez", email = "luis.garcia@unam.edu" },

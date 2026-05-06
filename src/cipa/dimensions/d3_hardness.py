@@ -34,7 +34,36 @@ def compute_d3(
     knn_cache: object | None = None,
     k: int = DEFAULT_K,
 ) -> DimensionResult:
-    """Compute D3 = (|borderline| + 2|rare| + 3|outlier|) / (3|C+|)."""
+    """Compute D3: Instance Hardness via the Napierała-Stefanowski typology.
+
+    Classifies each minority instance into one of four types based on the
+    composition of its k nearest neighbors (drawn from the full dataset):
+    - Safe      : majority of neighbors share the minority label (n_same > k/2).
+    - Borderline: more than one but not a majority of neighbors are minority.
+    - Rare      : exactly one neighbor is minority.
+    - Outlier   : no neighbor is minority.
+
+    D3 = (n_borderline + 2·n_rare + 3·n_outlier) / (3·|C+|)
+
+    Parameters
+    ----------
+    dataset : CIPADataset
+        Dataset to analyse.
+    knn_cache : _KNNCache or None
+        Pre-fitted k-NN cache shared with D2 and D7. If None, a fresh
+        cache is built from dataset using k.
+    k : int
+        Number of neighbors used for type classification. Reduced
+        automatically when k >= n_minority.
+
+    Returns
+    -------
+    DimensionResult
+        value      : D3 ∈ [0, 1]. Higher = more hard/outlier minority instances.
+        components : {"n_safe", "n_borderline", "n_rare", "n_outlier",
+                      "pct_safe", "pct_borderline", "pct_rare", "pct_outlier"}
+        metadata   : {"k"}
+    """
     n_min = dataset.n_minority
 
     effective_k = k

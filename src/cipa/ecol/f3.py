@@ -26,7 +26,36 @@ logger = logging.getLogger(__name__)
 
 
 def compute_f3(X: np.ndarray, y: np.ndarray) -> float:
-    """F3 ∈ [0, 1]. Lower = more separable on best feature."""
+    """Compute F3: Maximum Fisher Discriminant Ratio (ECoL measure).
+
+    For each feature, counts the fraction of instances that fall within the
+    overlapping value range of both classes. F3 is the minimum such fraction
+    across all features — i.e. the fraction of instances not separable by the
+    most discriminative single feature. Returns 0.0 immediately when any
+    feature achieves perfect class separation (no range overlap).
+
+    Formula
+    -------
+        For each feature j:
+            lo_j = max(min(X₀[:,j]), min(X₁[:,j]))
+            hi_j = min(max(X₀[:,j]), max(X₁[:,j]))
+        If hi_j < lo_j for any j → return 0.0 (perfect separation).
+            count_j = |{xᵢ : lo_j ≤ xᵢⱼ ≤ hi_j}|
+        F3 = min_j(count_j) / N
+
+    Parameters
+    ----------
+    X : np.ndarray, shape (N, d)
+        Feature matrix. All features must be numeric.
+    y : np.ndarray, shape (N,)
+        Binary label vector. Exactly two unique values.
+
+    Returns
+    -------
+    float
+        F3 ∈ [0, 1]. Lower = more separable; 0 means at least one feature
+        perfectly separates the classes.
+    """
     labels = np.unique(y)
     X0, X1 = X[y == labels[0]], X[y == labels[1]]
     N = len(X)

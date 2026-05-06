@@ -35,14 +35,31 @@ def compute_d6(
 ) -> DimensionResult:
     """Compute D6: Feature Informativeness.
 
+    Measures how much information the feature set X carries about the class
+    label Y. Uses sklearn's KSG mutual information estimator applied to each
+    feature independently, then averages the per-feature MI values.
+
     Formula:
-        D6 = 1 - Ī(X; Y) / H(Y)    [all in nats]
+        D6 = 1 − Ī(X; Y) / H(Y)    [all in nats]
+
+    D6 = 0 means features are maximally informative; D6 = 1 means features
+    carry no information about the class label.
+
+    Parameters
+    ----------
+    dataset : CIPADataset
+        Dataset to analyse.
+    random_state : int or None
+        Seed passed to mutual_info_classif for reproducibility of the
+        KSG estimator's internal k-NN queries.
 
     Returns
     -------
     DimensionResult
         value      : D6 ∈ [0, 1]. Higher = less informative features.
         components : {"H_Y_nats", "I_mean_nats", "mi_scores", "top_3_features"}
+                     mi_scores contains per-feature MI estimates (nats).
+                     top_3_features lists indices of the three most informative features.
         metadata   : {"random_state"}
     """
     p_plus = dataset.n_minority / dataset.N

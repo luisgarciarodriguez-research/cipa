@@ -37,7 +37,42 @@ def compute_d4(
     dbscan_eps: float | None = None,
     random_state: int | None = None,
 ) -> DimensionResult:
-    """Compute D4 = ECindex · sqrt(n_clusters / |C+|)."""
+    """Compute D4: Sub-concept Fragmentation.
+
+    Runs DBSCAN on the minority class to identify sub-regions (clusters) and
+    noise points. Combines the Error Concentration Index (ECindex) with the
+    cluster count relative to minority class size:
+
+        D4 = ECindex · sqrt(n_clusters / |C+|)
+
+    ECindex = 1 − sqrt(Σ pᵢ²), where pᵢ is the proportion of each cluster;
+    high values indicate uneven size distribution across sub-concepts.
+    Noise points are each treated as a singleton cluster of size 1.
+
+    Adaptive eps: when dbscan_eps is None, eps is set to the median distance
+    from each minority instance to its min_samples-th neighbor. If all
+    instances are classified as noise at that eps, it is doubled once.
+
+    Parameters
+    ----------
+    dataset : CIPADataset
+        Dataset to analyse. Only the minority class X_minority is clustered.
+    dbscan_min_samples : int
+        DBSCAN min_samples parameter.
+    dbscan_eps : float or None
+        DBSCAN eps. None triggers adaptive eps estimation from the minority
+        k-distance distribution.
+    random_state : int or None
+        Currently unused; reserved for future reproducibility hooks.
+
+    Returns
+    -------
+    DimensionResult
+        value      : D4 ∈ [0, 1]. Higher = more fragmented minority concept.
+        components : {"ECindex", "n_clusters", "n_true_clusters",
+                      "n_noise_points", "cluster_sizes"}
+        metadata   : {"eps_used", "min_samples", "eps_adaptive"}
+    """
     X_min = dataset.X_minority
     n_min = dataset.n_minority
     eps_adaptive = dbscan_eps is None

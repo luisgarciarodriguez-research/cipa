@@ -258,9 +258,26 @@ def _asymmetric_subsample(
 ) -> CIPADataset:
     """Return a new CIPADataset with at most n_target rows.
 
-    Strategy: keep all minority samples; randomly draw majority samples to
-    fill the remaining budget. If minority alone exceeds n_target, fall back
-    to proportional stratified sampling.
+    Keeps all minority instances and randomly draws majority instances to fill
+    the remaining budget. This asymmetric strategy ensures minority coverage is
+    not reduced, which matters for k-NN and DBSCAN computations (D2, D3, D4, D7).
+    If the minority class alone exceeds n_target, falls back to proportional
+    stratified sampling across both classes.
+
+    Parameters
+    ----------
+    dataset : CIPADataset
+        Original dataset to subsample.
+    n_target : int
+        Target row count for the returned dataset.
+    random_state : int or None
+        Seed for the random number generator.
+
+    Returns
+    -------
+    CIPADataset
+        Subsampled dataset with minority_label, majority_label, and name
+        preserved from the original.
     """
     import numpy as np
 
