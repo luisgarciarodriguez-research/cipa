@@ -6,13 +6,51 @@ result files.
 
 ```
 experiments/
-├── validate_table2.py    — main validation script
-├── VALIDATION_REPORT.md  — full numeric results and analysis (v1.1.0)
-└── README.md             — this file
+├── validate_table2.py      — main validation script (Table 2 reproduction)
+├── compute_rq1_stats.py    — RQ1 statistics: Spearman ρ, Pearson r, Wilcoxon p for B1–B3
+├── weight_sensitivity.py   — weight sensitivity analysis (per-dim ρ, Monte Carlo, SLSQP)
+├── ADDING_DATASETS.md      — guide for integrating new datasets
+├── VALIDATION_REPORT.md    — full numeric results and analysis (v1.1.0)
+└── README.md               — this file
 ```
 
 Result JSON files (`results*.json`) are excluded from the repository via
 `.gitignore`; they are regenerated locally by running the script.
+
+---
+
+## Additional scripts
+
+### `compute_rq1_stats.py` — RQ1 statistics
+
+Reproduces all RQ1 statistics from §5.2 of the paper using official CIPA
+v1.1.0 DS values. Self-contained: no dataset access required (hardcoded
+v1.1.0 DS values and AUC-PR references).
+
+```bash
+python experiments/compute_rq1_stats.py
+```
+
+Outputs Spearman ρ, Pearson r, and Wilcoxon p-values for the three baselines
+(B1 = IR, B2 = F3, B3 = ECoL distance). Definitive results: B1 p=0.040,
+B2 p=0.001, B3 p=0.0002.
+
+### `weight_sensitivity.py` — Weight sensitivity analysis
+
+Three analyses over the 13-dataset benchmark to assess robustness of the
+default weight vector **w = (0.10, 0.22, 0.18, 0.15, 0.10, 0.12, 0.13)**:
+
+1. **Per-dimension Spearman ρ** — effect of each individual weight on DS vs AUC-PR correlation.
+2. **Monte Carlo search** — 50,000 Dirichlet-sampled weight vectors; computes the
+   fraction that **w** outperforms.
+3. **Constrained SLSQP optimisation** — 21 multi-starts; finds the weight vector
+   that maximises |ρ|.
+
+Self-contained: hardcoded v1.1.0 D-matrix and AUC-PR references.
+
+```bash
+python experiments/weight_sensitivity.py
+```
 
 ---
 

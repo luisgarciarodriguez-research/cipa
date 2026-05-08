@@ -6,6 +6,37 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.2.0] — 2026-05-06
+
+### Added
+
+- `experiments/compute_rq1_stats.py`: reproduces all RQ1 statistics from §5.2
+  using CIPA v1.1.0 DS values consistently throughout (Spearman ρ, Pearson r,
+  Wilcoxon p for B1–B3). Resolves prior inconsistency where p=0.031 was
+  computed with aspirational DS while correlations used v1.1.0 values. Definitive
+  results: B1 p=0.040, B2 p=0.001, B3 p=0.0002 (abs_direct, two-sided).
+- `experiments/weight_sensitivity.py`: three analyses over the 13-dataset
+  benchmark — per-dimension Spearman ρ sensitivity, Monte Carlo search over the
+  weight simplex (50,000 Dirichlet samples), and constrained SLSQP optimisation
+  with 21 multi-starts. Addresses reviewer comment on manually specified weights:
+  principled **w** outperforms 61.9% of random assignments (ρ = −0.71 vs
+  median −0.68); optimal **w\*** gains Δ|ρ| = 0.07, attributable to
+  overfitting on N=13.
+- `experiments/ADDING_DATASETS.md`: step-by-step guide for integrating new
+  datasets into the validation script and `datasets/` directory.
+
+### Changed
+
+- Documentation audit and full docstring coverage pass over all modules in
+  `src/cipa/`.
+- `README.md`: corrected D1 formula, D5 description, and Sig III/IV trigger
+  to match the camera-ready paper.
+- `experiments/validate_table2.py`: all `TABLE_2` values updated to official
+  v1.1.0 computed results (4-digit precision); PaySim IR corrected to 772.7.
+- All 22 module docstrings updated to reflect v1.2.0 and camera-ready formulas.
+
+---
+
 ## [1.1.0] — 2026-03-30
 
 ### Changed
@@ -98,5 +129,6 @@ Initial public release implementing the four-stage CIPA framework:
 
 ---
 
-[1.1.0]: https://github.com/TODO/cipa/compare/v1.0.0...v1.1.0
-[1.0.0]: https://github.com/TODO/cipa/releases/tag/v1.0.0
+[1.2.0]: https://github.com/luisgarciarodriguez-research/cipa/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/luisgarciarodriguez-research/cipa/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/luisgarciarodriguez-research/cipa/releases/tag/v1.0.0

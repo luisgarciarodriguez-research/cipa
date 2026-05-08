@@ -8,7 +8,7 @@ up a development environment, run tests, and submit changes.
 ## Development setup
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/luisgarciarodriguez-research/cipa
 cd cipa
 pip install -e ".[dev]"
 ```
@@ -54,7 +54,7 @@ Key conventions already configured in `pyproject.toml`:
 
 1. Open an issue describing the bug or feature before starting significant
    work, to avoid duplicated effort.
-2. Fork the repository and create a branch from `main`.
+2. Fork the repository and create a branch from `master`.
 3. Make your changes with tests covering the new behaviour.
 4. Ensure `ruff check src/` and `pytest` both pass locally.
 5. Submit a pull request referencing the relevant issue.

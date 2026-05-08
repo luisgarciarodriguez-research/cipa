@@ -389,16 +389,17 @@ python -m ruff check src/
 If you use CIPA in your research, please cite:
 
 ```bibtex
-@article{garcia2026cipa,
-  title   = {{CIPA}: A Multi-Domain Statistical Framework for Characterizing
-             Imbalanced Datasets and Computing a Difficulty Score},
-  author  = {Garc\'{i}a Rodr\'{i}guez, Luis and
-             Neme Castillo, Jos\'{e} Antonio and
-             G\'{o}mez Adorno, Helena Montserrat and
-             Fuentes Pineda, Gibr\'{a}n},
-  journal = {TODO: venue},
-  year    = {2026},
-  doi     = {TODO: doi},
+@inproceedings{garcia2026cipa,
+  title     = {{CIPA}: A Multi-Domain Statistical Framework for Characterizing
+               Imbalanced Datasets and Computing a Difficulty Score},
+  author    = {Garc\'{i}a Rodr\'{i}guez, Luis and
+               Neme Castillo, Jos\'{e} Antonio and
+               G\'{o}mez Adorno, Helena Montserrat and
+               Fuentes Pineda, Gibr\'{a}n},
+  booktitle = {Proceedings of the XVIII Congreso Mexicano de Inteligencia
+               Artificial (COMIA 2026)},
+  year      = {2026},
+  % doi     = {},  % update when assigned
 }
 ```
 
