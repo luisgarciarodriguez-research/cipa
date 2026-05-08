@@ -98,6 +98,7 @@ def compute_d4(
         eps = float(dbscan_eps)  # type: ignore[arg-type]
 
     def _run_dbscan(e: float) -> np.ndarray:
+        """Run DBSCAN on the minority feature matrix with the given eps; return cluster labels."""
         return DBSCAN(eps=e, min_samples=dbscan_min_samples).fit_predict(X_min)
 
     labels = _run_dbscan(eps)

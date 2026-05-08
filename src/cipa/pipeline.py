@@ -80,6 +80,7 @@ class CIPAPipeline:
         svc_max_iter: int = DEFAULT_SVC_MAX_ITER,
         knn_subsample: int | None = None,
     ) -> None:
+        """Store configuration; all parameters are forwarded unchanged to the computation stages."""
         self._weights = weights
         self._k = k_neighbors
         self._dbscan_min_samples = dbscan_min_samples

@@ -189,6 +189,8 @@ def _pearson_ci(r: float, n: int, alpha: float = 0.05) -> tuple[float, float]:
 
 
 class WilcoxonResult(NamedTuple):
+    """Holds the results of a single pairwise Wilcoxon signed-rank test (DS vs one IR baseline)."""
+
     ir_label: str
     err_label: str
     alternative: str
@@ -295,6 +297,7 @@ def run_wilcoxon_grid(ds: np.ndarray, auc_pr: np.ndarray,
 
 def print_wilcoxon_grid(results: list[WilcoxonResult], ds_label: str,
                         target_p: float = 0.031) -> None:
+    """Print the full Wilcoxon result grid and flag rows within tol of target_p."""
     sep = "─" * 68
     print(f"\n{sep}")
     print(f"  WILCOXON GRID  (DS vs IR baseline)  —  DS source: {ds_label}")
@@ -318,6 +321,7 @@ def print_wilcoxon_grid(results: list[WilcoxonResult], ds_label: str,
 
 
 def run_all(ds_label: str) -> None:
+    """Run correlation analysis and Wilcoxon grid for one DS source label and print summary."""
     ds, auc_pr, ir, extras = build_arrays(ds_label)
     run_correlations(ds, auc_pr, extras, ds_label)
     results = run_wilcoxon_grid(ds, auc_pr, extras, ds_label)
@@ -464,6 +468,7 @@ def run_with_f3(data_dir: Path, ds_label: str) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    """Parse CLI arguments and dispatch to the requested RQ1 analyses."""
     parser = argparse.ArgumentParser(
         description="Reproduce RQ1 statistics (§5.2, García Rodríguez et al. 2026)",
         formatter_class=argparse.RawDescriptionHelpFormatter,

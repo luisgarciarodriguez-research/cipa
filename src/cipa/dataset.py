@@ -55,6 +55,7 @@ class CIPADataset:
         majority_label: int | bool,
         name: str | None = None,
     ) -> None:
+        """Validate inputs and store the dataset; raises ValueError on any structural problem."""
         X = np.asarray(X, dtype=np.float64)
         y = np.asarray(y)
 
@@ -219,6 +220,7 @@ class CIPADataset:
         return self._X[self._majority_mask]
 
     def __repr__(self) -> str:
+        """Return a compact one-line representation with key dataset statistics."""
         return (
             f"CIPADataset(name={self.name!r}, N={self.N}, d={self.d}, "
             f"IR={self.IR:.1f}, n_minority={self.n_minority})"

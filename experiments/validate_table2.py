@@ -139,6 +139,7 @@ def _asymmetric_subsample(
 
 
 def load_creditcard() -> tuple[np.ndarray, np.ndarray]:
+    """Load and asymmetrically subsample CreditCard fraud detection (Kaggle/ULB, N=284k, IR=577)."""
     import pandas as pd
     path = DATASETS_ROOT / "01-Financial-CreditCardFraudDetection" / "creditcard.csv"
     df = pd.read_csv(path)
@@ -149,6 +150,7 @@ def load_creditcard() -> tuple[np.ndarray, np.ndarray]:
 
 
 def load_paysim() -> tuple[np.ndarray, np.ndarray]:
+    """Load and asymmetrically subsample PaySim synthetic financial transactions (N=6.3M, IR=772.7)."""
     import pandas as pd
     path = DATASETS_ROOT / "02-Financial-PaySim" / "PS_20174392719_1491204439457_log.csv"
     df = pd.read_csv(path)
@@ -162,6 +164,7 @@ def load_paysim() -> tuple[np.ndarray, np.ndarray]:
 
 
 def load_ieee_cis() -> tuple[np.ndarray, np.ndarray]:
+    """Load, preprocess, and subsample IEEE-CIS Fraud (N=590k): drop sparse cols, label-encode, median-impute."""
     import pandas as pd
     path = DATASETS_ROOT / "03-Financial-IEEE_CIS_FD" / "train_transaction.csv"
     df = pd.read_csv(path)
@@ -184,6 +187,7 @@ def load_ieee_cis() -> tuple[np.ndarray, np.ndarray]:
 
 
 def load_breast_cancer() -> tuple[np.ndarray, np.ndarray]:
+    """Load Breast Cancer Wisconsin (Diagnostic) from UCI WDBC format; M=minority."""
     import pandas as pd
     path = DATASETS_ROOT / "04-Medical-BreastCancer-Wisconsin" / "wdbc.data"
     df = pd.read_csv(path, header=None)
@@ -194,6 +198,7 @@ def load_breast_cancer() -> tuple[np.ndarray, np.ndarray]:
 
 
 def load_pima() -> tuple[np.ndarray, np.ndarray]:
+    """Load the PIMA Indians Diabetes dataset from CSV (UCI/KEEL)."""
     import pandas as pd
     path = DATASETS_ROOT / "05-Medical-Diabetes" / "diabetes.csv"
     df = pd.read_csv(path)
@@ -203,6 +208,7 @@ def load_pima() -> tuple[np.ndarray, np.ndarray]:
 
 
 def load_svmguide1() -> tuple[np.ndarray, np.ndarray]:
+    """Load SVMGuide1 from libSVM format; minority class auto-detected by frequency."""
     from sklearn.datasets import load_svmlight_file
     path = DATASETS_ROOT / "06-Medical-SVMGuide1" / "svmguide1.txt"
     X, y = load_svmlight_file(str(path))
@@ -215,6 +221,7 @@ def load_svmguide1() -> tuple[np.ndarray, np.ndarray]:
 
 
 def load_nsl_kdd() -> tuple[np.ndarray, np.ndarray]:
+    """Load and subsample NSL-KDD (KDDTrain+); encode categorical cols; binary label: attack=1."""
     import pandas as pd
     path = DATASETS_ROOT / "07-Cybersecurity-KDD" / "KDDTrain+.txt"
     df = pd.read_csv(path, header=None)
@@ -233,6 +240,7 @@ def load_nsl_kdd() -> tuple[np.ndarray, np.ndarray]:
 
 
 def load_cic_ids() -> tuple[np.ndarray, np.ndarray]:
+    """Concatenate, clean (inf/NaN), and subsample CIC-IDS-2017 CSV shards; attack=1."""
     import pandas as pd
     pattern = DATASETS_ROOT / "08-Cybersecurity-CIC_IDS"
     csvs = sorted(pattern.glob("*.csv"))
@@ -260,6 +268,7 @@ def load_cic_ids() -> tuple[np.ndarray, np.ndarray]:
 
 
 def load_cwru() -> tuple[np.ndarray, np.ndarray]:
+    """Load CWRU Bearing fault diagnosis dataset; normal=majority, any fault=minority."""
     import pandas as pd
     path = DATASETS_ROOT / "09-Industrial-CWRU" / "feature_time_48k_2048_load_1.csv"
     df = pd.read_csv(path)
@@ -355,6 +364,7 @@ def load_tcga_brca() -> tuple[np.ndarray, np.ndarray]:
 
 
 def load_yeast_me3() -> tuple[np.ndarray, np.ndarray]:
+    """Load Yeast ME3 imbalanced dataset from UCI/KEEL whitespace-separated format."""
     import pandas as pd
     path = DATASETS_ROOT / "12-BioInformatics-YEAST" / "yeast.data"
     df = pd.read_csv(path, sep=r"\s+", header=None)
@@ -365,6 +375,7 @@ def load_yeast_me3() -> tuple[np.ndarray, np.ndarray]:
 
 
 def load_ecoli_imu() -> tuple[np.ndarray, np.ndarray]:
+    """Load Ecoli iMU imbalanced dataset from UCI/KEEL whitespace-separated format."""
     import pandas as pd
     path = DATASETS_ROOT / "13-Bioinformatics-Ecoli" / "ecoli.data"
     df = pd.read_csv(path, sep=r"\s+", header=None)
@@ -398,10 +409,12 @@ LOADERS: dict[str, tuple[callable, str]] = {
 # ---------------------------------------------------------------------------
 
 def _band_letter(band: str) -> str:
+    """Return the single-letter abbreviation for a difficulty band name (E/H/M/L)."""
     return {"Extreme": "E", "High": "H", "Moderate": "M", "Low": "L"}[band]
 
 
 def compare(name: str, result, elapsed: float) -> dict:
+    """Compare pipeline output for one dataset against expected Table 2 values; return diff record."""
     expected = TABLE_2[name]
     ds = result.difficulty_score
     dim_values = {d.dimension_id: d.value for d in ds.dimensions}
@@ -514,6 +527,7 @@ def _print_section(
 
 
 def print_report(records: list[dict]) -> None:
+    """Print the full tier-grouped validation report with per-dataset diffs and pass/fail summary."""
     W = 135
     print()
     print("=" * W)
@@ -522,6 +536,7 @@ def print_report(records: list[dict]) -> None:
 
     # Tier 1: exact numeric reproduction (DS ± 0.10, band, sig)
     def tier1_pass(r):
+        """Return True if result passes Tier 1: DS ±tol, band match, and signature match."""
         return r["DS"]["ok"] and r["band"]["ok"] and r["signature"]["ok"]
 
     n1 = _print_section(
@@ -533,6 +548,7 @@ def print_report(records: list[dict]) -> None:
 
     # Tier 2: qualitative reproduction (band + sig); DS numeric not expected due to subsampling
     def tier2_pass(r):
+        """Return True if result passes Tier 2: band and signature match (DS numeric not required)."""
         return r["band"]["ok"] and r["signature"]["ok"]
 
     n2 = _print_section(
@@ -566,6 +582,7 @@ def print_report(records: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    """Parse CLI arguments and run CIPA validation over selected benchmark datasets."""
     parser = argparse.ArgumentParser(
         description="Validate CIPA against Table 2",
         formatter_class=argparse.RawDescriptionHelpFormatter,
