@@ -4,6 +4,13 @@ This guide explains how to integrate a new dataset so that it can be analysed
 by the CIPA pipeline and included in the validation script
 (`experiments/validate_table2.py`).
 
+> **This guide describes the cipa 1.x workflow (tag `v1.2.1`)** used for the
+> COMIA 2026 results: the asymmetric 10k subsample, `from_arrays` and the
+> pipeline's `knn_subsample` parameter. In cipa 2.0.0 subsampling is internal
+> and per dimension (`n_max`, `n_subsamples`), `knn_subsample` no longer
+> exists and `from_arrays` is deprecated; see the main `README.md`. Install
+> v1.2.1 as described in `experiments/README.md` before following it.
+
 All four steps below are confined to that single file plus a new subdirectory
 under `datasets/`. No changes to `src/cipa/` are needed.
 
@@ -11,7 +18,7 @@ under `datasets/`. No changes to `src/cipa/` are needed.
 
 ## Prerequisites
 
-- CIPA installed in development mode: `pip install -e ".[dev]"`
+- CIPA v1.2.1 installed as described in `experiments/README.md`
 - The dataset available locally in a directory you control.
 
 ---
@@ -219,8 +226,10 @@ from cipa import CIPADataset, CIPAPipeline
 X = np.load("my_features.npy")
 y = np.load("my_labels.npy")
 
-# Build the CIPA dataset (minority class auto-detected by frequency)
-dataset = CIPADataset.from_arrays(X, y, name="MyDataset")
+# Build the CIPA dataset declaring the class roles explicitly
+# (from_arrays picks the minority by frequency, which inverted PaySim's
+# classes after subsampling; it is deprecated in 2.0.0)
+dataset = CIPADataset(X, y, minority_label=1, majority_label=0, name="MyDataset")
 
 # Run the full pipeline
 pipeline = CIPAPipeline(random_state=42)
@@ -235,8 +244,8 @@ for dim in result.difficulty_score.dimensions:
     print(f"  {dim.dimension_id}: {dim.value:.4f}")
 ```
 
-If both classes have equal frequency, `from_arrays` raises `ValueError`; in
-that case pass `minority_label` explicitly to `CIPADataset(...)`.
+This snippet works with v1.2.1 and 2.0.0, but the values differ between
+them; the 2.0.0 result also carries `result.metadata` and per-dimension IQRs.
 
 ---
 

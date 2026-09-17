@@ -4,6 +4,19 @@ Runs CIPAPipeline on all 13 benchmark datasets and compares
 dimension scores (D1-D7), DS, band, and complexity signature
 against the ground-truth values reported in Table 2.
 
+Requires cipa 1.x (tag v1.2.1)
+------------------------------
+This script reproduces the values published in COMIA 2026. It relies on the
+1.x API and behaviour: ``CIPADataset.from_arrays``, no feature scaling, the
+1.x signature rule and the asymmetric 10k subsamples below. cipa 2.0.0
+changes those values by design (see CHANGELOG.md), so the script stops if it
+imports cipa >= 2. Run it against the ``v1.2.1`` tag, e.g. from a worktree::
+
+    git worktree add ../cipa-v1.2.1 v1.2.1
+    cd ../cipa-v1.2.1
+    python -m venv .venv && .venv/bin/pip install -e ".[experiments]"
+    .venv/bin/python experiments/validate_table2.py --data-dir <this repo>/datasets
+
 Usage
 -----
     cd <project_root>
@@ -620,6 +633,14 @@ def main() -> None:
         format="%(levelname)s %(name)s: %(message)s",
     )
     warnings.filterwarnings("ignore")
+
+    import cipa
+    if int(cipa.__version__.split(".")[0]) >= 2:
+        parser.error(
+            f"cipa {cipa.__version__} imported from {cipa.__file__}.\n"
+            "This script reproduces the COMIA 2026 values and requires cipa 1.x: "
+            "run it against the v1.2.1 tag (see the module docstring)."
+        )
 
     from cipa import CIPADataset, CIPAPipeline
 

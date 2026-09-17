@@ -4,6 +4,15 @@ This directory contains the empirical validation of CIPA against the 13
 benchmark datasets reported in Table 2 of the paper, plus the corresponding
 result files.
 
+> **These experiments target cipa 1.x (tag `v1.2.1`).** They reproduce the
+> values published in COMIA 2026, which cipa 2.0.0 changes by design:
+> feature scaling, per-dimension subsampling, duplicate-aware neighbours,
+> L1 convergence and the paper's signature rule (see `CHANGELOG.md`).
+> `validate_table2.py` stops if it imports cipa ≥ 2. `compute_rq1_stats.py`
+> and `weight_sensitivity.py` use hardcoded v1.1.0 values; the optional
+> `--f3` mode of `compute_rq1_stats.py` only calls `compute_f3`, which is
+> unchanged in 2.0.0. `ADDING_DATASETS.md` also describes the 1.x workflow.
+
 ```
 experiments/
 ├── validate_table2.py      — main validation script (Table 2 reproduction)
@@ -56,11 +65,20 @@ python experiments/weight_sensitivity.py
 
 ## Prerequisites
 
-**1. Install CIPA and its dependencies**
+**1. Install CIPA v1.2.1 and its dependencies**
+
+Use a separate worktree and environment so the 2.x installation is not
+touched:
 
 ```bash
-pip install -e ".[dev]"
+git worktree add ../cipa-v1.2.1 v1.2.1
+cd ../cipa-v1.2.1
+python -m venv .venv
+.venv/bin/pip install -e ".[experiments]"
 ```
+
+Run the scripts with `.venv/bin/python` from that worktree, pointing
+`--data-dir` to the `datasets/` directory of your main checkout.
 
 **2. Download the datasets**
 
