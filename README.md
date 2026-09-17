@@ -23,7 +23,7 @@ CIPA formalizes this characterization step as a four-stage pipeline that measure
 
 DS significantly outperforms all three baselines (pairwise Wilcoxon, α = 0.05).
 
-> **cipa 2.0.0 changes the computed values** (scaling, per-dimension subsampling, duplicates, L1 convergence, signature rule). The published values are reproducible with the `v1.2.1` tag. See [Reproducing COMIA 2026 values](#reproducing-comia-2026-values) and `CHANGELOG.md`.
+> **cipa 2.0.0 changes the computed values** (scaling, per-dimension subsampling, duplicates, L1 convergence, signature rule, and D5 redefined as effective dimensionality relative to the minority). The published values are reproducible with the `v1.2.1` tag. See [Reproducing COMIA 2026 values](#reproducing-comia-2026-values) and `CHANGELOG.md`.
 
 ---
 
@@ -68,13 +68,13 @@ pip install -e ".[dev]"   # add test and lint tools
 
 ```bash
 python -c "import cipa; print(cipa.__version__)"
-# 2.0.0rc1
+# 2.0.0rc2
 ```
 
 To install a tagged release without touching other packages in the environment:
 
 ```bash
-pip install --no-deps "cipa @ git+https://github.com/luisgarciarodriguez-research/cipa@v2.0.0rc1"
+pip install --no-deps "cipa @ git+https://github.com/luisgarciarodriguez-research/cipa@v2.0.0rc2"
 ```
 
 ---
@@ -115,29 +115,29 @@ print("  Models       :", result.action.model_families[:2])
 print("  Validation   :", result.action.validation_protocol[:1])
 ```
 
-**Example output** (PIMA Diabetes, N=768, IR=1.9:1, cipa 2.0.0rc1 defaults):
+**Example output** (PIMA Diabetes, N=768, IR=1.9:1, cipa 2.0.0rc2 defaults):
 
 ```
-Difficulty Score : 0.475  (Moderate)
-Signature        : IV — Dimensionality-dominated
+Difficulty Score : 0.385  (Moderate)
+Signature        : II — Overlap-dominated
 
 Per-dimension breakdown:
   D1  0.067  (contributes 0.007)
   D2  0.584  (contributes 0.129)
   D3  0.262  (contributes 0.047)
   D4  0.285  (contributes 0.043)
-  D5  0.927  (contributes 0.093)
+  D5  0.029  (contributes 0.003)
   D6  0.934  (contributes 0.112)
   D7  0.348  (contributes 0.045)
 
 Top recommendations:
   Metrics      : ['AUC-PR', 'F1-score (minority class)']
-  Preprocessing: ['PCA or UMAP dimensionality reduction BEFORE resampling, then SMOTE']
-  Models       : ['Linear models after dimensionality reduction', 'Kernel SVM']
+  Preprocessing: ['Borderline-SMOTE or ADASYN']
+  Models       : ['RBF-SVM', 'Kernel methods']
   Validation   : ['Stratified k-fold cross-validation (k=5 or k=10)']
 ```
 
-With `scaling="none"` the same call returns the COMIA 2026 values (DS = 0.4274, Signature II, D5 = 0.2336): standardising the eight PIMA features makes the PCA spectrum nearly flat, so D5 rises and dominates.
+PIMA has 8 effective dimensions (r₉₅ = 8) for 268 minority instances, so D5 = (8/268)/(1 + 8/268) = 0.029. The COMIA 2026 value, D5 = 0.2336, was the spectral entropy of the unscaled data; 2.0.0 still reports it as the component `spectral_entropy_norm` (0.927 after z-scoring, where the flat spectrum of eight weakly correlated features made Signature IV almost universal in rc1).
 
 ### From a pandas DataFrame
 
@@ -188,11 +188,11 @@ All dimensions are normalized to [0, 1]; higher values indicate higher difficult
 | D2 | Class Overlap | `(F3 + N1 + kDN) / 3` | Geometric inseparability: F3 (Fisher discriminant ratio), N1 (exact Euclidean MST boundary fraction), kDN (fraction of the k = 5 neighbours with another label, averaged over **all** instances) |
 | D3 | Instance Hardness | Napierała–Stefanowski typology | Proportion of minority instances classified as borderline, rare, or outlier, weighted by severity |
 | D4 | Sub-concept Fragmentation | `ECindex × (n_clusters / \|C₊\|)^0.5` | How fragmented the minority concept is across DBSCAN sub-regions (`min_samples` = 3, eps = median distance to the 2nd neighbour, noise = singleton groups; ECindex = Error Concentration) |
-| D5 | Effective Dimensionality | `H(PCA eigenvalues) / ln(k)` | Spectral entropy of the covariance matrix: 0 = one dominant component, 1 = uniform variance spread |
+| D5 | Effective Dimensionality relative to the minority | `ρ / (1 + ρ)`, `ρ = r₉₅ / \|C₊\|` | PCA components needed for 95 % of the variance per minority instance: 0 = many minority instances per effective dimension, 0.5 = as many effective dimensions as minority instances |
 | D6 | Feature Informativeness | `1 − Ī(X;Y) / H(Y)` | Mutual information deficit between features and the label (KSG estimator): 0 = fully discriminative, 1 = uninformative |
 | D7 | Boundary Complexity | `(LinearSVC error + N2_norm) / 2` | Linear separability error combined with neighbourhood non-linearity (N2 ratio) |
 
-where `H(Y) = −p⁺ log₂ p⁺ − p⁻ log₂ p⁻` is the binary entropy of the label; `p±= |C±| / N`. L1 is the training error of `LinearSVC(class_weight="balanced")`.
+where `H(Y) = −p⁺ log₂ p⁺ − p⁻ log₂ p⁻` is the binary entropy of the label; `p±= |C±| / N`. L1 is the training error of `LinearSVC(class_weight="balanced")`. For D5, PCA keeps min(N−1, d) components, so r₉₅ ≤ min(N−1, d); ρ/(1+ρ) is the same map D7 applies to N2. The normalised spectral entropy of the PCA spectrum, `H(p) / ln(k)` (the D5 of cipa 1.x and COMIA 2026), is still reported as the informative component `spectral_entropy_norm` and does not enter D5.
 
 #### Computation protocol (2.0.0)
 
@@ -234,7 +234,7 @@ A dimension Dᵢ _dominates_ the profile when **Dᵢ > τ = 0.50 and Dᵢ = max{
 | I | Imbalance-dominated | D1 dominates |
 | II | Overlap-dominated | D2 dominates |
 | III | Fragmented | D4 dominates |
-| IV | Dimensionality-dominated | D5 dominates |
+| IV | Dimensionality-dominated | D5 dominates (more effective dimensions than minority instances) |
 | V | Compound | No dimension dominates |
 
 - **Ties** at the maximum resolve in the order D1 > D2 > D4 > D5. A value exactly equal to τ does not dominate.
@@ -262,7 +262,7 @@ Preprocessing and model families are **signature-specific**; evaluation metrics 
 - **D2 ≥ 0.55** → add AUC-ROC to metrics
 - **D3 ≥ 0.55** → add Recall (minority) to metrics; add outlier removal before oversampling
 - **D4 ≥ 0.55** → validate that each CV fold contains all sub-concepts
-- **D5 ≥ 0.70** → mandatory dimensionality reduction before any resampling
+- **D5 ≥ 0.70** → mandatory dimensionality reduction before any resampling (with the 2.0.0rc2 D5 this means r₉₅ ≥ 2.33·|C₊|)
 - **DS ≥ 0.50** → add G-mean to metrics
 - **DS ≥ 0.75** → add MCC; use repeated stratified k-fold (5×10); add cost-sensitive learning
 
@@ -350,6 +350,8 @@ dim = ds.dimensions[1]         # D2
 dim.value                      # median over draws (or the single value)
 dim.iqr                        # IQR over draws (0.0 without subsampling)
 dim.components                 # e.g. {"F3", "N1", "kDN", ...}: medians over draws
+                               # D5: {"r_95", "n_minority", "rho", "H_nats", "H_max_nats",
+                               #      "spectral_entropy_norm", "n_components_fit"}
 dim.metadata["n_used"]         # rows per computation
 dim.metadata["n_subsamples"]   # computations made (1 without subsampling)
 dim.metadata["seeds"]          # derived seed of each draw ([] without subsampling)
@@ -441,7 +443,7 @@ The values published in COMIA 2026 come from cipa v1.1.0–v1.2.1. Install the `
 pip install --no-deps "cipa @ git+https://github.com/luisgarciarodriguez-research/cipa@v1.2.1"
 ```
 
-For datasets processed without subsampling in the paper, `CIPAPipeline(scaling="none")` in 2.0.0 returns the same D1–D7 (the formulas are unchanged); the signature follows the paper's dominance rule, so it can differ from the published one. The test `tests/regression/test_regression_v1_2_1.py` checks this on synthetic data.
+For datasets processed without subsampling in the paper, `CIPAPipeline(scaling="none")` in 2.0.0 returns the same D1–D4, D6 and D7 (those formulas are unchanged). D5 was redefined; the published D5 is the component `spectral_entropy_norm` of D5, and the published DS is recovered by using it in place of D5. The signature follows the paper's dominance rule and the new D5, so it can differ from the published one. The test `tests/regression/test_regression_v1_2_1.py` checks this on synthetic data.
 
 ---
 

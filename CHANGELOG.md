@@ -6,6 +6,90 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [2.0.0rc2] — 2026-09-17
+
+Second release candidate of 2.0.0. **Only D5 changes**; everything else in
+2.0.0rc1 (C1–C9, scaling, subsampling, signatures, action) is unchanged.
+Decided in CIPA Extended (protocol decision 5, 2026-09-17) after two pilots
+on `v2.0.0rc1` over 28 datasets (`cipa-extended/results/cipa/pilot/`:
+`scaling_pilot_summary.md`, `d5_candidates.json`).
+
+### Changed — D5 redefined (breaking value change)
+
+- **D5 = effective dimensionality relative to the minority.**
+
+      r_95 = smallest number of principal components whose cumulative
+             explained variance ratio is ≥ 0.95
+      ρ    = r_95 / |C+|
+      D5   = ρ / (1 + ρ)        ∈ [0, 1); 0.5 when r_95 = |C+|
+
+  Same PCA fit as before (`PCA(n_components=min(N−1, d))` on the
+  preprocessed matrix with all N rows), so r_95 ≤ min(N−1, d). ρ/(1+ρ) is the
+  map D7 already applies to N2. `r_95 = searchsorted(cumsum(ratios), 0.95) + 1`
+  with no tolerance, capped at the number of fitted components if rounding
+  keeps the cumulative sum below 0.95. d = 1 or N ≤ 2 still return 0; a single
+  non-zero component gives r_95 = 1 and D5 = 1/(1 + |C+|). The threshold is
+  `cipa._constants.D5_VARIANCE_THRESHOLD` = 0.95 and is not a pipeline
+  parameter (the CIPA Extended protocol fixes it).
+- **Why.** With z-score (rc1, C2) the normalised spectral entropy measures
+  lack of redundancy, not dimensionality: it exceeded 0.5 in 24 of the 28
+  CIPA Extended datasets and made Signature IV cover 15 of the 20 fully
+  profiled ones (PIMA, d = 8: D5 = 0.93, "dimensionality-dominated"). Of four
+  candidates fixed before running the pilot (effective rank exp(H) or r_95,
+  relative to N or to |C+|), r_95/|C+| was chosen. It also answers the
+  criticism that D5 ignored the minority class and approached 1 on isotropic
+  noise.
+- **The spectral entropy remains available** as an informative component
+  that does not enter D5: `H_nats`, `H_max_nats`, `spectral_entropy_norm`
+  (= the 1.x/rc1 D5) and `n_components_fit`. New components `r_95`,
+  `n_minority` and `rho`; new metadata `variance_threshold`.
+- *Effect on values.* On the pilot reference datasets (`scaling="standard"`,
+  seed 42, full N): tcga_brca 0.758 → 0.785 (r_95 = 536, |C+| = 147),
+  secom 0.797 → 0.609, ozone_level 0.513 → 0.215, pima_diabetes 0.927 →
+  0.029, abalone_19 0.364 → 0.086, credit_card_fraud 0.983 → 0.052. D5 now
+  exceeds 0.5 only when there are more effective dimensions than minority
+  instances. DS moves by 0.10·ΔD5 with the default weights.
+- *Effect on signatures* (known, rule unchanged). Signature IV becomes rare:
+  replacing D5 in the 20 rc1 pilot profiles (`scaling="standard"`) leaves
+  only tcga_brca in IV (rc1: IV 15 · I 4 · II 1; rc2: I 10 · III 5 · II 2 ·
+  V 2 · IV 1). secom has D5 = 0.609 but D1 is larger, so it is Signature I.
+  The 18-case signature table and the 13 COMIA profiles in the tests use
+  fixed vectors and do not change.
+- *Effect on the action protocol* (known, **not corrected**; out of scope as
+  in rc1). `cipa.action` was not modified and still requires D5 ≥ 0.70 for
+  mandatory dimensionality reduction; with the new D5 that means
+  r_95 ≥ 2.33·|C+|, so the recommendation fires far less often, and Signature
+  IV recommendations follow the signature change above.
+
+### Tests
+
+- `tests/unit/test_d5.py` rewritten: exact value where r_95 is known by
+  construction (data in a k-dimensional subspace), ρ/(1+ρ) consistency,
+  D5 = 0.5 when r_95 = |C+|, monotone decrease with more minority instances
+  at the same spectrum, bound below 1 with d > N, cap of r_95 when the
+  cumulative ratio never reaches 0.95, degenerate cases (d = 1, N ≤ 2, a
+  single component) and the spectral-entropy component.
+- `tests/regression/test_regression_v1_2_1.py`: D5 is excluded from the exact
+  value comparison; its `spectral_entropy_norm`, `H_nats`, `H_max_nats` and
+  `n_components_fit` must equal the v1.2.1 D5 exactly. D1–D4, D6 and D7 stay
+  exact. The frozen reference is unchanged.
+- `tests/integration/test_d5_reference.py` (new): the six pilot reference
+  values (tcga_brca, secom, ozone_level, pima_diabetes, abalone_19,
+  credit_card_fraud) with tolerance 1e-3 and exact r_95. Runs only where
+  imbdata is installed and the datasets are cached; reproduced bit for bit
+  with imbdata 0.3.1.
+
+### Documentation
+
+- README: D5 row, formula notes, PIMA example output (Signature IV → II,
+  DS 0.475 → 0.385), Signature IV trigger, D5 action note, `DimensionResult`
+  components of D5 and the COMIA reproduction note (the published D5 is now
+  `spectral_entropy_norm`).
+- `specs/` remain out of date (SPEC-02, 05, 06, 08, 10, the 2.0.0 API and now
+  the D5 definition). Pending.
+
+---
+
 ## [2.0.0rc1] — 2026-09-16
 
 First release candidate of 2.0.0, prepared for CIPA Extended. **The formulas
