@@ -67,6 +67,9 @@ DEFAULT_QUERY_CHUNK_SIZE: int = 65_536
 # Exact Euclidean MST for N1 (C4): neighbours precomputed per instance
 DEFAULT_N1_NEIGHBORS: int = 16
 
+# D5 (2.0.0rc2): fraction of PCA variance that defines the effective dimensionality r_95
+D5_VARIANCE_THRESHOLD: float = 0.95
+
 # DBSCAN defaults (§3.1, D4)
 DEFAULT_DBSCAN_MIN_SAMPLES: int = 3
 

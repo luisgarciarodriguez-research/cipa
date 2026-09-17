@@ -1,10 +1,16 @@
 """Regression against v1.2.1 (cipa 2.0.0 handoff §1 and §5).
 
 On duplicate-free data without constant columns, with ``scaling="none"``,
-no subsampling and the same seed, D1–D6 must equal the values frozen from
-the ``v1.2.1`` tag in ``v1_2_1_reference.json``. D7 must match too wherever
-L1 converged in v1.2.1 (C5 changed only the non-convergent case). Values are
-compared exactly: the formulas did not change.
+no subsampling and the same seed, D1–D4 and D6 must equal the values frozen
+from the ``v1.2.1`` tag in ``v1_2_1_reference.json``. D7 must match too
+wherever L1 converged in v1.2.1 (C5 changed only the non-convergent case).
+Values are compared exactly: those formulas did not change.
+
+D5 was redefined in 2.0.0rc2 (r_95 relative to the minority size), so its
+value is not compared. The 1.x D5, the normalised spectral entropy, is still
+reported as the component ``spectral_entropy_norm`` and must equal the
+v1.2.1 D5 exactly, together with ``H_nats``, ``H_max_nats`` and
+``n_components_fit``.
 """
 
 from __future__ import annotations
@@ -47,9 +53,17 @@ def test_cases_have_no_duplicates_or_constant_columns(name):
 
 
 @pytest.mark.parametrize("name", list(CASES))
-@pytest.mark.parametrize("dim", ["D1", "D2", "D3", "D4", "D5", "D6"])
-def test_d1_to_d6_match_v1_2_1(computed, name, dim):
+@pytest.mark.parametrize("dim", ["D1", "D2", "D3", "D4", "D6"])
+def test_d1_to_d4_and_d6_match_v1_2_1(computed, name, dim):
     assert computed[name][dim].value == REFERENCE[name][dim]["value"]
+
+
+@pytest.mark.parametrize("name", list(CASES))
+def test_d5_spectral_entropy_component_matches_v1_2_1_d5(computed, name):
+    d5 = computed[name]["D5"]
+    assert d5.components["spectral_entropy_norm"] == REFERENCE[name]["D5"]["value"]
+    for key, value in REFERENCE[name]["D5"]["components"].items():
+        assert d5.components[key] == value, (name, key)
 
 
 @pytest.mark.parametrize("name", list(CASES))
