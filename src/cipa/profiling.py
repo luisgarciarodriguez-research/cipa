@@ -57,8 +57,8 @@ def compute_profile(
     the order D1 > D2 > D4 > D5 dominates. A value equal to tau does not
     dominate. D3, D6 and D7 never dominate, whatever their value.
 
-    Signature V qualifier (proposal, pending confirmation by the author)
-    --------------------------------------------------------------------
+    Signature V qualifier (confirmed by the author, 2026-09-16)
+    -----------------------------------------------------------
     The paper defines V as "no D_i dominates and ≥ 2 dimensions exceed
     tau_prime" or "all D_i < tau_prime", leaving uncovered the case in which
     no dimension dominates and exactly one exceeds tau_prime. Here V is the

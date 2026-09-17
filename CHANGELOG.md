@@ -93,8 +93,9 @@ and DS to four decimals with `scaling="none"`.
   D2, D4, D5; V when none dominates), with ties resolved D1 > D2 > D4 > D5.
   Signature V carries a qualifier over all seven dimensions — `compound`
   (≥ 2 > τ′ = 0.35), `single` (exactly one) or `low` (none) — which closes the
-  case the paper leaves uncovered. **The qualifier is a proposal pending
-  confirmation by the author before 2.0.0.** τ and τ′ are parameters.
+  case the paper leaves uncovered. **The qualifier was confirmed by the
+  author on 2026-09-16, unchanged from this release candidate.** τ and τ′ are
+  parameters.
   The 1.x priority rule (0.25/0.55 thresholds, D5 − D2 margin) is removed.
   *Effect:* on the 13 published COMIA profiles, 5 change signature
   (IEEE-CIS V → I, CreditCard V → I, PaySim V → IV, SEU Gearbox V → I,

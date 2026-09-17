@@ -238,7 +238,7 @@ A dimension Dᵢ _dominates_ the profile when **Dᵢ > τ = 0.50 and Dᵢ = max{
 | V | Compound | No dimension dominates |
 
 - **Ties** at the maximum resolve in the order D1 > D2 > D4 > D5. A value exactly equal to τ does not dominate.
-- **Qualifier of Signature V** (informative, never changes the signature), counting all seven dimensions above τ′ = 0.35: `compound` (≥ 2), `single` (exactly 1), `low` (none). The paper leaves the "exactly one above τ′" case uncovered; this qualifier is the implemented proposal, **pending confirmation by the author**.
+- **Qualifier of Signature V** (informative, never changes the signature), counting all seven dimensions above τ′ = 0.35: `compound` (≥ 2), `single` (exactly 1), `low` (none). The paper leaves the "exactly one above τ′" case uncovered; this qualifier closes it and was **confirmed by the author on 2026-09-16**.
 - τ and τ′ are parameters (`CIPAPipeline(tau=..., tau_prime=...)`).
 
 ### Stage A — Action recommendations
