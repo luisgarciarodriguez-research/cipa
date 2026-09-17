@@ -23,17 +23,72 @@ import logging
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
+from cipa._constants import DEFAULT_QUERY_CHUNK_SIZE
 from cipa.dataset import CIPADataset
 
 logger = logging.getLogger(__name__)
 
 
-class _KNNCache:
-    """Pre-fitted NearestNeighbors shared by D2 (kDN), D3 (NS-typology), D7 (N2).
+def kneighbors_excluding_self(
+    nn: NearestNeighbors,
+    X_query: np.ndarray,
+    query_indices: np.ndarray,
+    k: int,
+    chunk_size: int = DEFAULT_QUERY_CHUNK_SIZE,
+) -> tuple[np.ndarray, np.ndarray]:
+    """k nearest neighbours of fitted points, excluding each point by index (C3).
 
-    Fits once; caches query results for the default k.
-    Querying includes self-exclusion (training point excluded from its own
-    neighborhood by requesting k+1 neighbors and dropping the first result).
+    Requests k+1 neighbours and removes the column whose index equals the
+    query's own index. Exact duplicates of the query (other rows at distance
+    0) are kept as neighbours: a twin with another label is real overlap.
+    If the query's own index is not among the k+1 results, which only happens
+    when more than k other rows share its distance 0, the last column is
+    dropped instead.
+
+    Among neighbours at exactly the same distance, the order is the one
+    returned by the scikit-learn tree; it is deterministic for a given X.
+
+    Parameters
+    ----------
+    nn : NearestNeighbors
+        Estimator fitted on the reference matrix that contains the queries.
+    X_query : np.ndarray, shape (m, d)
+        Query rows.
+    query_indices : np.ndarray, shape (m,)
+        Row index of each query in the fitted reference matrix.
+    k : int
+        Neighbours to return per query. Must satisfy k + 1 <= n_fitted.
+    chunk_size : int
+        Maximum number of queries sent to the tree at once.
+
+    Returns
+    -------
+    distances : np.ndarray, shape (m, k)
+    indices : np.ndarray, shape (m, k)
+        Indices into the fitted reference matrix, sorted by distance.
+    """
+    m = len(X_query)
+    distances = np.empty((m, k), dtype=np.float64)
+    indices = np.empty((m, k), dtype=np.intp)
+    for start in range(0, m, chunk_size):
+        stop = min(start + chunk_size, m)
+        dist, idx = nn.kneighbors(X_query[start:stop], n_neighbors=k + 1)
+        drop = idx == np.asarray(query_indices[start:stop])[:, None]
+        drop[~drop.any(axis=1), -1] = True
+        # Keep the first occurrence only, in case of repeated indices
+        drop &= np.cumsum(drop, axis=1) == 1
+        keep = ~drop
+        distances[start:stop] = dist[keep].reshape(stop - start, k)
+        indices[start:stop] = idx[keep].reshape(stop - start, k)
+    return distances, indices
+
+
+class _KNNCache:
+    """Nearest-neighbour index shared by D2 (kDN) and D3 (NS-typology).
+
+    The index is fitted lazily on first query and results are cached for the
+    default k. Each instance is excluded from its own neighbourhood by index,
+    not by position (see ``kneighbors_excluding_self``).
     """
 
     def __init__(
@@ -41,8 +96,10 @@ class _KNNCache:
         dataset: CIPADataset,
         k: int,
         algorithm: str = "ball_tree",
+        n_jobs: int | None = None,
+        chunk_size: int = DEFAULT_QUERY_CHUNK_SIZE,
     ) -> None:
-        """Fit a NearestNeighbors model on the full dataset and prepare caches.
+        """Prepare a lazily fitted NearestNeighbors model on the dataset.
 
         Parameters
         ----------
@@ -53,6 +110,10 @@ class _KNNCache:
             if k >= dataset.N.
         algorithm : str
             Neighbor search algorithm passed to sklearn NearestNeighbors.
+        n_jobs : int or None
+            Parallel jobs for neighbour queries (sklearn convention).
+        chunk_size : int
+            Maximum number of queries sent to the tree at once.
         """
         if k <= 0:
             raise ValueError(f"k must be > 0, got {k}")
@@ -62,14 +123,25 @@ class _KNNCache:
 
         self._dataset = dataset
         self._k = k
-        # Request k+1 to allow self-exclusion; cap at N
-        self._n_fit = min(k + 1, dataset.N)
-
-        self._nn = NearestNeighbors(n_neighbors=self._n_fit, algorithm=algorithm)
-        self._nn.fit(dataset.X)
+        self._algorithm = algorithm
+        self._n_jobs = n_jobs
+        self._chunk_size = chunk_size
+        self._nn: NearestNeighbors | None = None
 
         self._cache_all: tuple[np.ndarray, np.ndarray] | None = None
         self._cache_minority: tuple[np.ndarray, np.ndarray] | None = None
+
+    @property
+    def k(self) -> int:
+        """Number of neighbours returned per query (after clamping to N-1)."""
+        return self._k
+
+    def _fitted(self) -> NearestNeighbors:
+        """Fit the neighbour index on first use and return it."""
+        if self._nn is None:
+            self._nn = NearestNeighbors(algorithm=self._algorithm, n_jobs=self._n_jobs)
+            self._nn.fit(self._dataset.X)
+        return self._nn
 
     def query_all(self) -> tuple[np.ndarray, np.ndarray]:
         """k nearest neighbors for all N instances, excluding self.
@@ -80,9 +152,10 @@ class _KNNCache:
         indices   : (N, k)  — indices into dataset.X
         """
         if self._cache_all is None:
-            dists, idxs = self._nn.kneighbors(self._dataset.X, n_neighbors=self._n_fit)
-            # Remove self (column 0 is always self with distance ≈ 0)
-            self._cache_all = (dists[:, 1:], idxs[:, 1:])
+            X = self._dataset.X
+            self._cache_all = kneighbors_excluding_self(
+                self._fitted(), X, np.arange(len(X)), self._k, self._chunk_size
+            )
         return self._cache_all
 
     def query_minority(self) -> tuple[np.ndarray, np.ndarray]:
@@ -96,82 +169,9 @@ class _KNNCache:
         indices   : (n_minority, k)  — indices into dataset.X
         """
         if self._cache_minority is None:
-            dists, idxs = self._nn.kneighbors(
-                self._dataset.X_minority, n_neighbors=self._n_fit
+            minority_idx = np.flatnonzero(self._dataset.minority_mask)
+            self._cache_minority = kneighbors_excluding_self(
+                self._fitted(), self._dataset.X[minority_idx], minority_idx,
+                self._k, self._chunk_size,
             )
-            self._cache_minority = (dists[:, 1:], idxs[:, 1:])
         return self._cache_minority
-
-
-def _maybe_subsample(
-    X: np.ndarray,
-    y: np.ndarray,
-    minority_label: int | bool,
-    majority_label: int | bool,
-    max_exact: int,
-    subsample_size: int,
-    random_state: int | None = None,
-) -> tuple[np.ndarray, np.ndarray, bool]:
-    """Stratified subsample for large datasets.
-
-    If len(X) <= max_exact, the original arrays are returned unchanged.
-    Otherwise a stratified subsample of size subsample_size is drawn,
-    preserving the minority/majority class ratio (minimum 2 minority instances).
-
-    Parameters
-    ----------
-    X : np.ndarray, shape (N, d)
-        Feature matrix.
-    y : np.ndarray, shape (N,)
-        Label vector.
-    minority_label : int or bool
-        Label of the minority class.
-    majority_label : int or bool
-        Label of the majority class.
-    max_exact : int
-        Maximum N for which the full dataset is used without subsampling.
-    subsample_size : int
-        Target sample size when subsampling is triggered.
-    random_state : int or None
-        Seed for the random number generator.
-
-    Returns
-    -------
-    X_out : np.ndarray
-        Feature matrix (original or subsampled).
-    y_out : np.ndarray
-        Label vector (original or subsampled).
-    was_subsampled : bool
-        True if subsampling was applied.
-    """
-    if len(X) <= max_exact:
-        return X, y, False
-
-    rng = np.random.default_rng(random_state)
-    min_mask = y == minority_label
-    maj_mask = y == majority_label
-    n_min = int(min_mask.sum())
-    n_maj = int(maj_mask.sum())
-    n_total = len(X)
-
-    # Proportional allocation; ensure at least 2 minority
-    n_min_sample = max(2, int(subsample_size * n_min / n_total))
-    n_maj_sample = subsample_size - n_min_sample
-
-    n_min_sample = min(n_min_sample, n_min)
-    n_maj_sample = min(n_maj_sample, n_maj)
-
-    min_idx = np.where(min_mask)[0]
-    maj_idx = np.where(maj_mask)[0]
-
-    sampled_min = rng.choice(min_idx, size=n_min_sample, replace=False)
-    sampled_maj = rng.choice(maj_idx, size=n_maj_sample, replace=False)
-
-    indices = np.concatenate([sampled_min, sampled_maj])
-    rng.shuffle(indices)
-
-    logger.info(
-        "_maybe_subsample: N=%d → %d (min=%d, maj=%d)",
-        n_total, len(indices), n_min_sample, n_maj_sample,
-    )
-    return X[indices], y[indices], True

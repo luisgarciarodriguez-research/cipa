@@ -29,7 +29,7 @@ from cipa.types import DimensionResult
 logger = logging.getLogger(__name__)
 
 
-def compute_d5(dataset: CIPADataset) -> DimensionResult:
+def compute_d5(dataset: CIPADataset, random_state: int | None = None) -> DimensionResult:
     """Compute D5: Effective Dimensionality via spectral entropy.
 
     Formula
@@ -51,6 +51,14 @@ def compute_d5(dataset: CIPADataset) -> DimensionResult:
                (low effective dimensionality).
     - D5 ≈ 1 : variance spread uniformly across all k components
                (high effective dimensionality, curse-of-dimensionality regime).
+
+    Parameters
+    ----------
+    dataset : CIPADataset
+        Dataset to analyse.
+    random_state : int or None
+        Forwarded to PCA; only randomized or ARPACK solvers use it, so the
+        value does not change the result of the exact solvers chosen here.
 
     Degenerate cases
     ----------------
@@ -77,7 +85,7 @@ def compute_d5(dataset: CIPADataset) -> DimensionResult:
         )
 
     n_components = min(n - 1, d)
-    pca = PCA(n_components=n_components)
+    pca = PCA(n_components=n_components, random_state=random_state)
     pca.fit(X - X.mean(axis=0))
 
     evr     = pca.explained_variance_ratio_

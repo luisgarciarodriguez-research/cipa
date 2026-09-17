@@ -11,8 +11,8 @@ import json
 import numpy as np
 import pytest
 
+import cipa
 from cipa import CIPADataset, CIPAPipeline, CIPAResult
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -140,7 +140,7 @@ class TestRunDimensionsOnly:
         pipe = CIPAPipeline(random_state=0)
         dims_only = pipe.run_dimensions_only(ds)
         full = pipe.run(ds)
-        for a, b in zip(dims_only, full.difficulty_score.dimensions):
+        for a, b in zip(dims_only, full.difficulty_score.dimensions, strict=True):
             assert a.value == pytest.approx(b.value, abs=1e-9)
 
 
@@ -149,18 +149,54 @@ class TestRunDimensionsOnly:
 # ---------------------------------------------------------------------------
 
 class TestRunScoringOnly:
-    def test_returns_difficulty_score(self):
-        from cipa import DifficultyScore
+    def test_returns_result_without_action(self):
         ds = make_dataset(20, 100)
-        score = CIPAPipeline().run_scoring_only(ds)
-        assert isinstance(score, DifficultyScore)
+        result = CIPAPipeline().run_scoring_only(ds)
+        assert isinstance(result, CIPAResult)
+        assert result.action is None
+        assert result.profile.signature in {"I", "II", "III", "IV", "V"}
 
     def test_value_matches_full_run(self):
         ds = make_dataset(20, 100, seed=9)
         pipe = CIPAPipeline(random_state=0)
         score = pipe.run_scoring_only(ds)
         full = pipe.run(ds)
-        assert score.value == pytest.approx(full.difficulty_score.value, abs=1e-9)
+        assert score.difficulty_score.value == full.difficulty_score.value
+        assert score.profile.to_dict() == full.profile.to_dict()
+
+    def test_handoff_call_is_serializable_with_required_fields(self):
+        """The call cipa-extended makes per dataset (handoff §3)."""
+        rng = np.random.default_rng(3)
+        X = np.column_stack([rng.normal(size=(400, 5)), np.ones(400)])
+        y = np.array([1] * 40 + [0] * 360)
+        X[:40, :2] += 1.0
+        w_expert = (0.10, 0.22, 0.18, 0.15, 0.10, 0.12, 0.13)
+        result = CIPAPipeline(
+            weights=w_expert, random_state=42, scaling="standard",
+            n_max=300, n_subsamples=3, n_jobs=-1,
+        ).run_scoring_only(CIPADataset(X, y, minority_label=1, majority_label=0, name="key"))
+        d = json.loads(json.dumps(result.to_dict()))
+
+        dims = d["difficulty_score"]["dimensions"]
+        assert [x["dimension_id"] for x in dims] == [f"D{i}" for i in range(1, 8)]
+        for x in dims:
+            assert {"value", "iqr", "components", "metadata"} <= set(x)
+            assert {"n_used", "n_subsamples", "seeds", "time_seconds"} <= set(x["metadata"])
+        assert {"F3", "N1", "kDN"} <= set(dims[1]["components"])
+        assert {"n_safe", "n_borderline", "n_rare", "n_outlier"} <= set(dims[2]["components"])
+        assert {"ECindex", "n_clusters"} <= set(dims[3]["components"])
+        assert {"L1", "N2norm", "converged"} <= set(dims[6]["components"])
+        assert dims[1]["metadata"]["n_subsamples"] == 3
+
+        meta = d["metadata"]
+        assert meta["preprocessing"]["dropped_constant_columns"] == [5]
+        assert meta["l1_fits"] == 3 and meta["l1_not_converged"] >= 0
+        assert set(meta["time_seconds"]) >= {"preprocessing", "D1", "D7", "total"}
+        assert meta["cipa_version"] == cipa.__version__
+        assert d["difficulty_score"]["band"] in {"Low", "Moderate", "High", "Extreme"}
+        assert d["profile"]["signature"] in {"I", "II", "III", "IV", "V"}
+        assert "qualifier" in d["profile"]
+        assert d["action"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -170,10 +206,10 @@ class TestRunScoringOnly:
 class TestCustomWeights:
     def test_custom_weights_change_ds(self):
         ds = make_dataset(20, 100)
-        default = CIPAPipeline().run_scoring_only(ds).value
+        default = CIPAPipeline().run_scoring_only(ds).difficulty_score.value
         # All weight on D1
         custom = CIPAPipeline(weights=(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)).run_scoring_only(ds)
-        assert default != pytest.approx(custom.value, abs=0.01)
+        assert default != pytest.approx(custom.difficulty_score.value, abs=0.01)
 
     def test_uniform_weights_accepted(self):
         ds = make_dataset(20, 100)
@@ -236,57 +272,21 @@ class TestReproducibility:
 
 
 # ---------------------------------------------------------------------------
-# knn_subsample: selective subsampling for expensive dimensions
+# Removed 1.x parameters
 # ---------------------------------------------------------------------------
 
-class TestKnnSubsample:
-    def test_knn_subsample_returns_valid_result(self):
-        """Pipeline with knn_subsample returns a valid CIPAResult."""
-        ds = make_dataset(30, 270, seed=0)
-        result = CIPAPipeline(knn_subsample=100, random_state=0).run(ds)
-        assert isinstance(result, CIPAResult)
-        assert 0.0 <= result.difficulty_score.value <= 1.0
+@pytest.mark.parametrize("param", ["knn_subsample", "n1_max_exact", "large_n_subsample"])
+def test_removed_subsampling_parameters_are_rejected(param):
+    with pytest.raises(TypeError):
+        CIPAPipeline(**{param: 100})
 
-    def test_knn_subsample_none_equals_full(self):
-        """knn_subsample=None (default) must produce same result as running full."""
-        ds = make_dataset(20, 80, seed=0)
-        r_full = CIPAPipeline(random_state=0).run(ds)
-        r_no_sub = CIPAPipeline(knn_subsample=None, random_state=0).run(ds)
-        assert r_full.difficulty_score.value == pytest.approx(r_no_sub.difficulty_score.value, abs=1e-9)
 
-    def test_knn_subsample_larger_than_n_uses_full(self):
-        """knn_subsample ≥ N → no subsampling → identical to knn_subsample=None."""
-        ds = make_dataset(20, 80, seed=0)  # N=100
-        r_none = CIPAPipeline(random_state=0).run(ds)
-        r_big  = CIPAPipeline(knn_subsample=10_000, random_state=0).run(ds)
-        assert r_none.difficulty_score.value == pytest.approx(r_big.difficulty_score.value, abs=1e-9)
+def test_l1_non_convergence_is_counted(caplog):
+    import logging
 
-    def test_knn_subsample_d1_reflects_full_dataset(self):
-        """D1 is computed on the full dataset even when knn_subsample is active.
-
-        The full dataset has extreme IR; with subsampling D1 would be lower.
-        We verify D1 equals what compute_d1 gives on the full dataset.
-        """
-        from cipa.dimensions import compute_d1
-        ds = make_dataset(10, 490, seed=0)  # N=500, IR=49
-        full_d1 = compute_d1(ds).value
-
-        pipe = CIPAPipeline(knn_subsample=50, random_state=0)
-        dims = pipe.run_dimensions_only(ds)
-        pipeline_d1 = dims[0].value  # D1 is first dimension
-
-        assert pipeline_d1 == pytest.approx(full_d1, abs=1e-9)
-
-    def test_knn_subsample_all_dimensions_in_range(self):
-        """All 7 dimensions are in [0, 1] with knn_subsample active."""
-        ds = make_dataset(20, 180, seed=1)
-        dims = CIPAPipeline(knn_subsample=50, random_state=0).run_dimensions_only(ds)
-        for dim in dims:
-            assert 0.0 <= dim.value <= 1.0, f"{dim.dimension_id}={dim.value} out of range"
-
-    def test_knn_subsample_reproducible(self):
-        """Same seed → same result with knn_subsample."""
-        ds = make_dataset(20, 180, seed=0)
-        r1 = CIPAPipeline(knn_subsample=50, random_state=7).run(ds)
-        r2 = CIPAPipeline(knn_subsample=50, random_state=7).run(ds)
-        assert r1.difficulty_score.value == pytest.approx(r2.difficulty_score.value, abs=1e-9)
+    ds = make_overlapping(n_minority=60, n_majority=240, seed=4)
+    with caplog.at_level(logging.WARNING, logger="cipa"):
+        result = CIPAPipeline(svc_max_iter=1, scaling="none").run_scoring_only(ds)
+    assert result.metadata["l1_not_converged"] == 1
+    assert result.difficulty_score.dimensions[6].components["converged"] is False
+    assert "did not converge" in caplog.text

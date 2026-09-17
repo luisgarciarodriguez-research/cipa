@@ -1,7 +1,6 @@
 """Unit tests for D6 — Feature Informativeness."""
 
 import numpy as np
-import pytest
 
 from cipa import CIPADataset
 from cipa.dimensions import compute_d6

@@ -18,6 +18,7 @@ License: MIT — see LICENSE file for full terms.
 
 from __future__ import annotations
 
+import inspect
 import logging
 
 import numpy as np
@@ -28,10 +29,13 @@ from cipa.types import DimensionResult
 
 logger = logging.getLogger(__name__)
 
+_MI_ACCEPTS_N_JOBS = "n_jobs" in inspect.signature(mutual_info_classif).parameters
+
 
 def compute_d6(
     dataset: CIPADataset,
     random_state: int | None = None,
+    n_jobs: int | None = None,
 ) -> DimensionResult:
     """Compute D6: Feature Informativeness.
 
@@ -52,6 +56,9 @@ def compute_d6(
     random_state : int or None
         Seed passed to mutual_info_classif for reproducibility of the
         KSG estimator's internal k-NN queries.
+    n_jobs : int or None
+        Parallel jobs for the estimator, forwarded only when the installed
+        scikit-learn supports it (>= 1.5). It does not change the result.
 
     Returns
     -------
@@ -81,8 +88,9 @@ def compute_d6(
             "D6: H(Y) very small (%.4f nats) — D6 may be unreliable for this dataset.", H_Y
         )
 
+    extra = {"n_jobs": n_jobs} if _MI_ACCEPTS_N_JOBS else {}
     mi_scores = mutual_info_classif(
-        dataset.X, dataset.y, discrete_features=False, random_state=random_state
+        dataset.X, dataset.y, discrete_features=False, random_state=random_state, **extra
     )
 
     I_mean = float(np.clip(np.mean(mi_scores), 0.0, H_Y))

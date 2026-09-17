@@ -25,12 +25,13 @@ Quick start
 >>> X = np.load("features.npy")
 >>> y = np.load("labels.npy")
 >>>
->>> dataset = CIPADataset.from_arrays(X, y, name="MyDataset")
->>> pipeline = CIPAPipeline(random_state=42)
+>>> dataset = CIPADataset(X, y, minority_label=1, majority_label=0, name="MyDataset")
+>>> pipeline = CIPAPipeline(random_state=42, scaling="standard", n_max=50_000)
 >>> result = pipeline.run(dataset)
 >>>
 >>> print(result.difficulty_score.value, result.difficulty_score.band)
->>> print(result.profile.signature, result.profile.signature_name)
+>>> print(result.profile.signature, result.profile.qualifier)
+>>> print(result.metadata["time_seconds"])
 """
 
 from cipa._constants import DEFAULT_WEIGHTS
@@ -45,7 +46,7 @@ from cipa.types import (
     DimensionResult,
 )
 
-__version__ = "1.2.0"
+__version__ = "2.0.0rc1"
 
 __all__ = [
     "DEFAULT_WEIGHTS",

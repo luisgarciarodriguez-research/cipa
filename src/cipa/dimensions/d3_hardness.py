@@ -37,7 +37,8 @@ def compute_d3(
     """Compute D3: Instance Hardness via the Napierała-Stefanowski typology.
 
     Classifies each minority instance into one of four types based on the
-    composition of its k nearest neighbors (drawn from the full dataset):
+    composition of its k nearest neighbors (drawn from the full dataset, with
+    the instance itself excluded by index, so exact duplicates count):
     - Safe      : majority of neighbors share the minority label (n_same > k/2).
     - Borderline: more than one but not a majority of neighbors are minority.
     - Rare      : exactly one neighbor is minority.

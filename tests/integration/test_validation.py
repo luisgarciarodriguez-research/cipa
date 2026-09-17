@@ -6,7 +6,7 @@ T-07-03  D3: synthetic proxies with controlled k-NN topology → directional bou
 T-07-04  D4: synthetic proxies with controlled cluster structure → directional bounds.
 T-07-05  D6: synthetic proxies with controlled MI → directional bounds.
 T-07-06  D7: synthetic proxies with controlled separability → directional bounds.
-T-07-07  Signature: 9 Table-2 datasets → verify signature assignment (target ≥ 8/9).
+T-07-07  Signature: 13 published COMIA profiles → paper dominance rule (cipa 2.0.0, C7).
 T-07-08  Performance: full pipeline on N=2000, d=20 dataset completes in ≤ 10 s.
 
 NOTE: Real benchmark datasets (CreditCard, PaySim, etc.) are not available in
@@ -31,14 +31,12 @@ from cipa.dimensions import (
     compute_d1,
     compute_d3,
     compute_d4,
-    compute_d5,
     compute_d6,
     compute_d7,
 )
 from cipa.indexing import classify_band, compute_difficulty_score
 from cipa.profiling import compute_profile
 from cipa.types import DimensionResult
-
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -423,54 +421,55 @@ class TestT0706_D7Proxies:
 
 
 # ===========================================================================
-# T-07-07  Signature classification (9 Table 2 datasets with known D1–D5)
+# T-07-07  Signature classification (13 COMIA 2026 profiles, paper rule)
 # ===========================================================================
 
-# Table 2 dimension vectors. D6/D7 filled in where not specified from paper;
-# values chosen to satisfy the Sig. I constraint (D2-D7 < 0.25) where needed,
-# or neutral (≈0.40) otherwise.
-_TABLE2_VECTORS: dict[str, tuple[tuple[float, ...], str]] = {
-    # (D1, D2, D3, D4, D5, D6, D7) → expected signature
-    "Breast Cancer W.": ((0.09, 0.08, 0.06, 0.03, 0.03, 0.07, 0.11), "I"),
-    "SVMGUIDE1":        ((0.05, 0.11, 0.08, 0.04, 0.04, 0.10, 0.15), "I"),
-    "NSL-KDD":          ((0.31, 0.22, 0.18, 0.11, 0.08, 0.14, 0.21), "I"),
-    "CreditCard":       ((0.89, 0.81, 0.78, 0.72, 0.12, 0.44, 0.68), "V"),
-    "PaySim":           ((0.91, 0.77, 0.74, 0.66, 0.10, 0.38, 0.62), "V"),
-    "IEEE-CIS Fraud":   ((0.51, 0.71, 0.63, 0.52, 0.61, 0.45, 0.50), "II"),
-    "CWRU Bearing":     ((0.30, 0.41, 0.36, 0.62, 0.22, 0.35, 0.30), "III"),
-    "SEU Gearbox":      ((0.29, 0.44, 0.38, 0.58, 0.31, 0.38, 0.32), "III"),
-    "TCGA-BRCA":        ((0.32, 0.58, 0.49, 0.31, 0.81, 0.72, 0.45), "IV"),
+# Published v1.1.0 profiles (paper Table 3) with the signature published in
+# COMIA 2026 and the one the paper's own dominance rule assigns (cipa 2.0.0, C7).
+_COMIA_PROFILES: dict[str, tuple[tuple[float, ...], str, str]] = {
+    # (D1, D2, D3, D4, D5, D6, D7), published signature, paper-rule signature
+    "IEEE-CIS Fraud":   ((0.7811, 0.3770, 0.9219, 0.6989, 0.0000, 0.9642, 0.1562), "V", "I"),
+    "PIMA Diabetes":    ((0.0669, 0.5992, 0.2848, 0.3817, 0.2336, 0.9346, 0.3449), "II", "II"),
+    "Yeast-ME3":        ((0.5006, 0.2138, 0.2025, 0.2714, 0.8581, 0.9199, 0.1994), "IV", "IV"),
+    "Ecoli-iMU":        ((0.5179, 0.2345, 0.2286, 0.2617, 0.6974, 0.8192, 0.1739), "IV", "IV"),
+    "CreditCard":       ((0.7170, 0.2997, 0.2039, 0.5337, 0.0038, 0.6819, 0.1394), "V", "I"),
+    "PaySim":           ((0.3228, 0.3565, 0.1114, 0.4398, 0.5328, 0.7368, 0.0905), "V", "IV"),
+    "TCGA-BRCA":        ((0.1746, 0.2130, 0.0654, 0.2421, 0.7326, 0.8792, 0.2265), "IV", "IV"),
+    "NSL-KDD":          ((0.0035, 0.3412, 0.0117, 0.6158, 0.1291, 0.7875, 0.2241), "III", "III"),
+    "CIC-IDS-2017":     ((0.2841, 0.2351, 0.0504, 0.4648, 0.2694, 0.7447, 0.1023), "V", "V"),
+    "SVMGUIDE1":        ((0.0637, 0.2739, 0.0300, 0.5702, 0.3527, 0.5362, 0.0709), "III", "III"),
+    "Breast Cancer W.": ((0.0474, 0.2357, 0.0818, 0.4940, 0.0284, 0.6773, 0.0875), "V", "V"),
+    "SEU Gearbox":      ((0.5310, 0.0213, 0.0000, 0.2424, 0.4037, 0.4666, 0.1077), "V", "I"),
+    "CWRU Bearing":     ((0.5310, 0.0078, 0.0319, 0.4446, 0.0520, 0.3670, 0.0172), "V", "I"),
 }
 
 
 class TestT0707_SignatureClassification:
-    """Signature rules (SPEC-10 §3.5) applied to known Table 2 dimension vectors.
+    """Paper dominance rule (§3.3) applied to the 13 published COMIA profiles."""
 
-    Gate: ≥ 8 of 9 datasets correctly classified (matching the paper's own
-    claim of 10/13 consistency).
-    """
-
-    @pytest.mark.parametrize("name,data", list(_TABLE2_VECTORS.items()))
-    def test_signature_per_dataset(self, name, data):
-        vector, expected_sig = data
-        ds = make_difficulty(vector)
-        profile = compute_profile(ds)
+    @pytest.mark.parametrize("name", list(_COMIA_PROFILES))
+    def test_signature_per_dataset(self, name):
+        vector, _, expected_sig = _COMIA_PROFILES[name]
+        profile = compute_profile(make_difficulty(vector))
         assert profile.signature == expected_sig, (
             f"{name}: expected Sig. {expected_sig}, got Sig. {profile.signature} "
             f"(vector={vector})"
         )
 
-    def test_overall_accuracy_at_least_8_of_9(self):
-        """At least 8 of 9 known datasets classified correctly (≥ 88%)."""
-        correct = 0
-        for name, (vector, expected_sig) in _TABLE2_VECTORS.items():
-            ds = make_difficulty(vector)
-            profile = compute_profile(ds)
-            if profile.signature == expected_sig:
-                correct += 1
-        assert correct >= 8, (
-            f"Only {correct}/9 datasets correctly classified; need ≥ 8"
+    def test_five_of_thirteen_change_from_published(self):
+        """Protocol decision 2: with the paper rule 5 of the 13 datasets change signature."""
+        changed = [
+            name for name, (vector, published, _) in _COMIA_PROFILES.items()
+            if compute_profile(make_difficulty(vector)).signature != published
+        ]
+        assert sorted(changed) == sorted(
+            ["IEEE-CIS Fraud", "CreditCard", "PaySim", "SEU Gearbox", "CWRU Bearing"]
         )
+
+    def test_remaining_signature_v_are_compound(self):
+        for name in ("CIC-IDS-2017", "Breast Cancer W."):
+            profile = compute_profile(make_difficulty(_COMIA_PROFILES[name][0]))
+            assert profile.qualifier == "compound"
 
 
 # ===========================================================================

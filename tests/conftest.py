@@ -16,7 +16,6 @@ import pytest
 
 from cipa import CIPADataset
 
-
 # ---------------------------------------------------------------------------
 # Structural fixtures — each captures a specific complexity scenario
 # ---------------------------------------------------------------------------
@@ -85,7 +84,7 @@ def fragmented_minority() -> CIPADataset:
     rng = np.random.default_rng(106)
     centers = [(10, 0), (0, 10), (-10, 0), (0, -10), (5, 5)]
     X_min = np.vstack([
-        rng.normal(loc=list(c) + [0, 0], scale=0.3, size=(6, 4))
+        rng.normal(loc=[*c, 0, 0], scale=0.3, size=(6, 4))
         for c in centers
     ])
     X_maj = rng.normal(loc=[0, 0, 0, 0], scale=2.0, size=(200, 4))

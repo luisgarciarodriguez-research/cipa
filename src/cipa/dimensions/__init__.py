@@ -19,7 +19,7 @@ License: MIT — see LICENSE file for full terms.
 from cipa.dimensions.d1_imbalance import compute_d1
 from cipa.dimensions.d2_overlap import compute_d2
 from cipa.dimensions.d3_hardness import compute_d3
-from cipa.dimensions.d4_fragmentation import compute_d4
+from cipa.dimensions.d4_fragmentation import compute_d4, compute_d4_from_minority
 from cipa.dimensions.d5_dimensionality import compute_d5
 from cipa.dimensions.d6_informativeness import compute_d6
 from cipa.dimensions.d7_boundary import compute_d7
@@ -29,6 +29,7 @@ __all__ = [
     "compute_d2",
     "compute_d3",
     "compute_d4",
+    "compute_d4_from_minority",
     "compute_d5",
     "compute_d6",
     "compute_d7",

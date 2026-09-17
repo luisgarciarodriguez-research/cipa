@@ -20,7 +20,13 @@ License: MIT — see LICENSE file for full terms.
 
 from cipa.ecol.f3 import compute_f3
 from cipa.ecol.l1 import compute_l1
-from cipa.ecol.n1 import compute_n1
+from cipa.ecol.n1 import compute_n1, euclidean_minimum_spanning_tree
 from cipa.ecol.n2 import compute_n2
 
-__all__ = ["compute_f3", "compute_l1", "compute_n1", "compute_n2"]
+__all__ = [
+    "compute_f3",
+    "compute_l1",
+    "compute_n1",
+    "compute_n2",
+    "euclidean_minimum_spanning_tree",
+]

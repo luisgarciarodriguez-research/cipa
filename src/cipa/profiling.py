@@ -26,10 +26,10 @@ from __future__ import annotations
 import logging
 
 from cipa._constants import (
-    DOMINANCE_MARGIN,
-    ELEVATION_THRESHOLD,
-    LOW_THRESHOLD,
+    SIGNATURE_CANDIDATES,
     SIGNATURE_NAMES,
+    SIGNATURE_TAU,
+    SIGNATURE_TAU_PRIME,
 )
 from cipa.types import ComplexityProfile, DifficultyScore
 
@@ -38,70 +38,91 @@ logger = logging.getLogger(__name__)
 
 def compute_profile(
     difficulty_score: DifficultyScore,
-    elevation_threshold: float = ELEVATION_THRESHOLD,
-    low_threshold: float = LOW_THRESHOLD,
-    dominance_margin: float = DOMINANCE_MARGIN,
+    tau: float = SIGNATURE_TAU,
+    tau_prime: float = SIGNATURE_TAU_PRIME,
 ) -> ComplexityProfile:
-    """Classify the Complexity Profile and assign a Signature.
+    """Classify the Complexity Profile and assign a Signature (§3.3, C7).
+
+    Dominance rule (paper, §3.3)
+    ----------------------------
+    D_i dominates P if D_i > tau and D_i = max{D1, D2, D4, D5}.
+
+    - Signature I:   D1 dominates.
+    - Signature II:  D2 dominates.
+    - Signature III: D4 dominates.
+    - Signature IV:  D5 dominates.
+    - Signature V:   no dimension dominates.
+
+    If several candidates share the maximum and it exceeds tau, the first in
+    the order D1 > D2 > D4 > D5 dominates. A value equal to tau does not
+    dominate. D3, D6 and D7 never dominate, whatever their value.
+
+    Signature V qualifier (proposal, pending confirmation by the author)
+    --------------------------------------------------------------------
+    The paper defines V as "no D_i dominates and ≥ 2 dimensions exceed
+    tau_prime" or "all D_i < tau_prime", leaving uncovered the case in which
+    no dimension dominates and exactly one exceeds tau_prime. Here V is the
+    residual signature (no dimension dominates) and carries a qualifier that
+    never changes the signature, counted over all seven dimensions:
+
+    - ``"compound"``: ≥ 2 dimensions > tau_prime;
+    - ``"single"``: exactly one dimension > tau_prime;
+    - ``"low"``: every dimension ≤ tau_prime.
 
     Parameters
     ----------
     difficulty_score : DifficultyScore
         Must contain exactly 7 dimension results (D1-D7).
-    elevation_threshold : float
-        A dimension Di is "elevated" when Di >= elevation_threshold.
-    low_threshold : float
-        A dimension Di is "low" when Di < low_threshold (used for Sig. I).
-    dominance_margin : float
-        Minimum gap between D5 and D2 for Sig. IV to be assigned.
+    tau : float
+        Dominance threshold (paper: 0.50).
+    tau_prime : float
+        Threshold for the Signature V qualifier (paper: 0.35).
 
     Returns
     -------
     ComplexityProfile
-        vector             : (D1, ..., D7)
-        signature          : "I" | "II" | "III" | "IV" | "V"
-        signature_name     : human-readable name
-        dominant_dimensions: dimensions with Di >= elevation_threshold
+        vector              : (D1, ..., D7)
+        signature           : "I" | "II" | "III" | "IV" | "V"
+        signature_name      : human-readable name
+        dominant_dimension  : dominating dimension, or None for V
+        qualifier           : "compound" | "single" | "low" for V, else None
+        active_dimensions   : dimensions with Di > tau, descending
+        elevated_dimensions : dimensions with Di > tau_prime, descending
     """
     vector = tuple(d.value for d in difficulty_score.dimensions)
-    d1, d2, d3, d4, d5, d6, d7 = vector
+    values = {f"D{i + 1}": v for i, v in enumerate(vector)}
 
-    # Priority 0 — Signature I: uniformly low, all non-imbalance dims below low_threshold
-    if all(v < low_threshold for v in (d2, d3, d4, d5, d6, d7)):
-        sig = "I"
+    peak = max(values[dim] for dim, _ in SIGNATURE_CANDIDATES)
+    dominant = None
+    sig = "V"
+    if peak > tau:
+        for dim, candidate_sig in SIGNATURE_CANDIDATES:
+            if values[dim] == peak:
+                dominant, sig = dim, candidate_sig
+                break
 
-    # Priority 1 - Signature IV: D5 dominates {D1,D2,D4,D5}, high enough, and leads D2 by margin
-    elif (
-        d5 == max(d1, d2, d4, d5)
-        and d5 > elevation_threshold
-        and d5 > d2 + dominance_margin
-    ):
-        sig = "IV"
+    def _above(threshold: float) -> list[str]:
+        """Dimension IDs with value > threshold, by descending value (stable by ID)."""
+        hits = [dim for dim, v in values.items() if v > threshold]
+        return sorted(hits, key=lambda dim: -values[dim])
 
-    # Priority 2 - Signature III: D4 dominates {D1,D2,D4,D5} and exceeds 0.50
-    elif d4 == max(d1, d2, d4, d5) and d4 > 0.50:
-        sig = "III"
+    active = _above(tau)
+    elevated = _above(tau_prime)
 
-    # Priority 3 — Signature II: D2 clearly elevated and at least as large as D1
-    elif d2 > elevation_threshold and d2 >= d1:
-        sig = "II"
+    qualifier = None
+    if sig == "V":
+        qualifier = "compound" if len(elevated) >= 2 else "single" if elevated else "low"
 
-    # Priority 4 — Signature V: compound (default)
-    else:
-        sig = "V"
-
-    # Dominant dimensions: all Di >= elevation_threshold, sorted descending
-    indexed = [
-        (v, f"D{i + 1}") for i, v in enumerate(vector) if v >= elevation_threshold
-    ]
-    indexed.sort(key=lambda x: -x[0])
-    dominant_dims = [name for _, name in indexed]
-
-    logger.debug("Signature %s (%s)", sig, SIGNATURE_NAMES[sig])
+    logger.debug("Signature %s (%s), qualifier=%s", sig, SIGNATURE_NAMES[sig], qualifier)
 
     return ComplexityProfile(
         vector=vector,
         signature=sig,
         signature_name=SIGNATURE_NAMES[sig],
-        dominant_dimensions=dominant_dims,
+        dominant_dimension=dominant,
+        qualifier=qualifier,
+        active_dimensions=active,
+        elevated_dimensions=elevated,
+        tau=tau,
+        tau_prime=tau_prime,
     )

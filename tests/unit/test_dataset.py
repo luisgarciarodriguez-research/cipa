@@ -1,5 +1,7 @@
 """Unit tests for CIPADataset. Covers all SPEC-01 §3.3 validation rules."""
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -30,8 +32,9 @@ def test_construction_succeeds(valid_X, valid_y):
     assert pytest.approx(ds.IR) == 4.0
 
 
-def test_from_arrays_auto_detects_minority(valid_X, valid_y):
-    ds = CIPADataset.from_arrays(valid_X, valid_y)
+def test_from_arrays_auto_detects_minority_and_is_deprecated(valid_X, valid_y):
+    with pytest.warns(DeprecationWarning, match="minority_label"):
+        ds = CIPADataset.from_arrays(valid_X, valid_y)
     assert ds.minority_label == 1
     assert ds.majority_label == 0
 
@@ -136,5 +139,61 @@ def test_same_minority_majority_label_raises(valid_X, valid_y):
 def test_from_arrays_equal_classes_raises():
     X = np.ones((20, 2))
     y = np.array([0] * 10 + [1] * 10)
-    with pytest.raises(ValueError, match="equal frequency"):
+    with pytest.raises(ValueError, match="equal frequency"), pytest.warns(DeprecationWarning):
         CIPADataset.from_arrays(X, y)
+
+
+def test_from_arrays_non_binary_raises():
+    with pytest.raises(ValueError, match="2 unique"), pytest.warns(DeprecationWarning):
+        CIPADataset.from_arrays(np.ones((20, 2)), np.array([0, 1, 2, 3] * 5))
+
+
+# ---------------------------------------------------------------------------
+# C1 — declared minority is taken as declared
+# ---------------------------------------------------------------------------
+
+def test_declared_minority_that_is_majority_warns_and_is_not_inverted(valid_X, valid_y, caplog):
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="cipa"), \
+            pytest.warns(UserWarning, match="more than majority_label"):
+        ds = CIPADataset(valid_X, valid_y, minority_label=0, majority_label=1, name="flip")
+    assert ds.minority_label == 0
+    assert ds.n_minority == 16
+    assert ds.minority_is_majority is True
+    assert "more than majority_label" in caplog.text
+
+
+def test_balanced_classes_do_not_warn(recwarn):
+    X = np.random.default_rng(0).normal(size=(20, 2))
+    ds = CIPADataset(X, np.array([0, 1] * 10), minority_label=1, majority_label=0)
+    assert ds.minority_is_majority is False
+    assert not [w for w in recwarn if issubclass(w.category, UserWarning)]
+
+
+def test_pipeline_records_minority_is_majority(valid_X, valid_y):
+    from cipa import CIPAPipeline
+
+    with pytest.warns(UserWarning):
+        ds = CIPADataset(valid_X, valid_y, minority_label=0, majority_label=1)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)  # the pipeline must not warn again
+        result = CIPAPipeline().run_scoring_only(ds)
+    meta = result.metadata
+    assert meta["minority_is_majority"] is True
+    assert (meta["minority_label"], meta["n_minority"], meta["n_majority"]) == (0, 16, 4)
+    assert result.difficulty_score.dimensions[2].metadata["n_queries"] == 16
+
+
+def test_subset_and_with_features_validate():
+    X = np.random.default_rng(1).normal(size=(30, 3))
+    y = np.array([1] * 6 + [0] * 24)
+    ds = CIPADataset(X, y, minority_label=1, majority_label=0)
+    sub = ds._subset(np.arange(4, 30))
+    assert (sub.N, sub.n_minority, sub.n_majority) == (26, 2, 24)
+    with pytest.raises(ValueError, match="n_minority"):
+        ds._subset(np.arange(5, 30))
+    with pytest.raises(ValueError, match="N >= 10"):
+        ds._subset(np.arange(0, 8))
+    with pytest.raises(ValueError, match="invalid shape"):
+        ds._with_features(np.ones((29, 3)))

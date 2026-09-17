@@ -26,6 +26,8 @@ import numpy as np
 
 def _to_json_safe(value: Any) -> Any:
     """Recursively convert numpy types to JSON-serializable Python builtins."""
+    if isinstance(value, np.bool_):
+        return bool(value)
     if isinstance(value, np.integer):
         return int(value)
     if isinstance(value, np.floating):
@@ -57,19 +59,27 @@ class DimensionResult:
         see each ``compute_d*`` function for the exact set.
     metadata : dict[str, Any]
         Auxiliary information (e.g. hyperparameter values, subsample flags)
-        that does not contribute directly to the dimension value.
+        that does not contribute directly to the dimension value. Results
+        produced by ``CIPAPipeline`` also record the subsampling protocol:
+        ``n_used``, ``n_subsamples``, ``seeds``, ``values``, ``components_iqr``
+        and ``time_seconds`` (see ``cipa.pipeline``).
+    iqr : float
+        Interquartile range of the dimension over the subsamples it was
+        computed on. 0.0 when a single computation was made.
     """
 
     value: float
     dimension_id: str
     components: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
+    iqr: float = 0.0
 
     _VALID_IDS: ClassVar[set[str]] = {f"D{i}" for i in range(1, 8)}
 
     def __post_init__(self) -> None:
         """Coerce value to float and validate dimension_id membership and value bounds."""
         self.value = float(self.value)
+        self.iqr = float(self.iqr)
         if self.dimension_id not in self._VALID_IDS:
             raise ValueError(
                 f"dimension_id must be one of {sorted(self._VALID_IDS)}, "
@@ -79,11 +89,14 @@ class DimensionResult:
             raise ValueError(
                 f"DimensionResult.value must be in [0, 1], got {self.value}"
             )
+        if self.iqr < 0.0:
+            raise ValueError(f"DimensionResult.iqr must be >= 0, got {self.iqr}")
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-serializable dict with value, dimension_id, components, and metadata."""
+        """Return a JSON-serializable dict with value, iqr, dimension_id, components, and metadata."""
         return {
             "value": self.value,
+            "iqr": self.iqr,
             "dimension_id": self.dimension_id,
             "components": _to_json_safe(self.components),
             "metadata": _to_json_safe(self.metadata),
@@ -159,32 +172,64 @@ class ComplexityProfile:
         Assigned complexity signature: "I" | "II" | "III" | "IV" | "V".
     signature_name : str
         Human-readable signature name (e.g. "Overlap-dominated").
-    dominant_dimensions : list[str]
-        Dimension IDs with value ≥ elevation_threshold (0.55), sorted
-        in descending order of their value.
+    dominant_dimension : str or None
+        The dimension that dominates the profile ("D1", "D2", "D4" or "D5"),
+        or None for Signature V.
+    qualifier : str or None
+        Informative qualifier of Signature V: "compound" (≥ 2 dimensions
+        > tau_prime), "single" (exactly one) or "low" (none). None for I–IV.
+        It never changes the signature.
+    active_dimensions : list[str]
+        All dimensions (D1–D7) with value > tau, sorted by descending value.
+    elevated_dimensions : list[str]
+        All dimensions (D1–D7) with value > tau_prime, sorted by descending
+        value. Its length defines the qualifier of Signature V.
+    tau : float
+        Dominance threshold used (default 0.50).
+    tau_prime : float
+        Secondary threshold used for the Signature V qualifier (default 0.35).
     """
 
     vector: tuple[float, ...]
     signature: str
     signature_name: str
-    dominant_dimensions: list[str]
+    dominant_dimension: str | None = None
+    qualifier: str | None = None
+    active_dimensions: list[str] = field(default_factory=list)
+    elevated_dimensions: list[str] = field(default_factory=list)
+    tau: float = 0.50
+    tau_prime: float = 0.35
 
     _VALID_SIGS: ClassVar[set[str]] = {"I", "II", "III", "IV", "V"}
+    _VALID_QUALIFIERS: ClassVar[set[str]] = {"compound", "single", "low"}
 
     def __post_init__(self) -> None:
-        """Validate vector length and signature membership."""
+        """Validate vector length, signature membership and signature/qualifier consistency."""
         if len(self.vector) != 7:
             raise ValueError(f"vector must have length 7, got {len(self.vector)}")
         if self.signature not in self._VALID_SIGS:
             raise ValueError(f"signature must be one of {self._VALID_SIGS}, got {self.signature!r}")
+        if self.signature == "V":
+            if self.qualifier not in self._VALID_QUALIFIERS:
+                raise ValueError(
+                    f"Signature V requires a qualifier in {self._VALID_QUALIFIERS}, "
+                    f"got {self.qualifier!r}"
+                )
+        elif self.qualifier is not None:
+            raise ValueError(f"qualifier applies only to Signature V, got {self.qualifier!r}")
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-serializable dict with vector, signature, signature_name, and dominant_dimensions."""
+        """Return a JSON-serializable dict with the vector, signature, qualifier and thresholds."""
         return {
             "vector": list(self.vector),
             "signature": self.signature,
             "signature_name": self.signature_name,
-            "dominant_dimensions": self.dominant_dimensions,
+            "dominant_dimension": self.dominant_dimension,
+            "qualifier": self.qualifier,
+            "active_dimensions": list(self.active_dimensions),
+            "elevated_dimensions": list(self.elevated_dimensions),
+            "tau": self.tau,
+            "tau_prime": self.tau_prime,
         }
 
 
@@ -244,20 +289,27 @@ class CIPAResult:
         Aggregated DS value, band, weights, and per-dimension contributions.
     profile : ComplexityProfile
         Complexity Signature and dominant dimension vector.
-    action : ActionRecommendation
-        Four-axis recommendation set with rationale and warnings.
+    action : ActionRecommendation or None
+        Four-axis recommendation set with rationale and warnings. None when
+        the result comes from ``CIPAPipeline.run_scoring_only``.
+    metadata : dict[str, Any]
+        Dataset-level record of the run: class counts and whether the declared
+        minority is actually the majority, dropped constant columns and scaling,
+        subsampling protocol, seed, L1 convergence count and timings.
     """
 
     dataset_name: str | None
     difficulty_score: DifficultyScore
     profile: ComplexityProfile
-    action: ActionRecommendation
+    action: ActionRecommendation | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-serializable dict with dataset_name, difficulty_score, profile, and action."""
+        """Return a JSON-serializable dict with dataset_name, difficulty_score, profile, action, and metadata."""
         return {
             "dataset_name": self.dataset_name,
             "difficulty_score": self.difficulty_score.to_dict(),
             "profile": self.profile.to_dict(),
-            "action": self.action.to_dict(),
+            "action": None if self.action is None else self.action.to_dict(),
+            "metadata": _to_json_safe(self.metadata),
         }

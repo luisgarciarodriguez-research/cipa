@@ -2,6 +2,32 @@
 
 See §3 of García Rodríguez et al. (2026) for the data flow.
 
+Computation protocol (cipa 2.0.0)
+---------------------------------
+1. Preprocessing (C2), once on all N rows: constant columns are dropped and
+   the rest scaled (``scaling``). Every dimension sees the same matrix.
+2. Each dimension runs on the rows that match what it measures (C6):
+
+   ============================  ==============================================
+   Dimension                     Rows
+   ============================  ==============================================
+   D1, D5, D6                    all N rows
+   D3                            every minority row as query, neighbours
+                                 searched among all N rows
+   D4                            all minority rows; if |C+| > n_max,
+                                 n_subsamples draws of n_max minority rows
+   D2 (F3, N1, kDN), D7 (L1, N2)  all N rows if N <= n_max; otherwise
+                                 n_subsamples stratified draws of n_max rows
+                                 that keep the imbalance ratio (±1 row)
+   ============================  ==============================================
+
+   With several draws the dimension value and each numeric component are the
+   median over draws, with their IQR recorded. D2 and D7 share the same draws.
+   DS is computed from the medians.
+3. Every source of randomness derives from ``random_state`` (C9): draw seeds
+   come from ``numpy.random.SeedSequence``; the integer itself is passed to
+   ``mutual_info_classif``, ``LinearSVC`` and PCA.
+
 This module is part of the CIPA software package, companion implementation to:
 
     García Rodríguez, L., Neme Castillo, J. A., Gómez Adorno, H. M., & Fuentes Pineda, G. (2026).
@@ -21,18 +47,38 @@ License: MIT — see LICENSE file for full terms.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from time import perf_counter
+from typing import Any
+
+import numpy as np
 
 from cipa._constants import (
     DEFAULT_D2_WEIGHTS,
     DEFAULT_DBSCAN_MIN_SAMPLES,
     DEFAULT_K,
-    DEFAULT_LARGE_N_SUBSAMPLE,
-    DEFAULT_N1_MAX_EXACT,
+    DEFAULT_N_MAX,
+    DEFAULT_N_SUBSAMPLES,
+    DEFAULT_QUERY_CHUNK_SIZE,
+    DEFAULT_RANDOM_STATE,
+    DEFAULT_SCALING,
     DEFAULT_SVC_MAX_ITER,
     DEFAULT_WEIGHTS,
+    SCALING_OPTIONS,
+    SIGNATURE_TAU,
+    SIGNATURE_TAU_PRIME,
+)
+from cipa._subsampling import (
+    STREAM_D2_D7,
+    STREAM_D4,
+    derive_seed,
+    median_iqr,
+    minority_indices,
+    stratified_indices,
+    validate_random_state,
 )
 from cipa.dataset import CIPADataset
-from cipa.types import CIPAResult, DifficultyScore, DimensionResult
+from cipa.types import CIPAResult, DimensionResult
 
 logger = logging.getLogger(__name__)
 
@@ -44,53 +90,84 @@ class CIPAPipeline:
     ----------
     weights : tuple of 7 floats
         Dimension weights for DS computation. Must sum to 1.
+    random_state : int
+        Seed for every random source (C9). Must be a non-negative integer;
+        None is rejected. Default 42.
+    scaling : {"standard", "robust", "none"}
+        Feature scaling applied once to all N rows after dropping constant
+        columns (C2). ``"robust"`` is meant for sensitivity analysis and
+        ``"none"`` for comparisons with cipa 1.x.
+    n_max : int
+        Largest number of rows (D2, D7) or minority rows (D4) a single
+        computation uses; above it the dimension is computed on
+        ``n_subsamples`` draws of ``n_max`` rows (C6).
+    n_subsamples : int
+        Number of draws when a dimension exceeds ``n_max``.
+    n_jobs : int or None
+        Parallel jobs for neighbour searches, DBSCAN and, with
+        scikit-learn >= 1.5, mutual information. It does not change results.
     k_neighbors : int
-        k for kDN (D2) and NS-typology (D3). Shared k-NN fit.
+        k for kDN (D2) and NS-typology (D3).
     dbscan_min_samples : int
         DBSCAN min_samples for D4.
     dbscan_eps : float or None
         DBSCAN eps for D4. None = adaptive.
-    n1_max_exact : int
-        Max N for exact N1 computation (MST).
-    large_n_subsample : int
-        Subsample size for large-N paths in N1, N2.
-    random_state : int or None
-        For reproducibility across D4, D6, D7.
     d2_weights : tuple of 3 floats
         (alpha, beta, gamma) for (F3, N1, kDN) in D2. Must sum to 1.
-    knn_subsample : int or None
-        When set and N > knn_subsample, apply selective subsampling:
-        D1, D5, D6 use the full dataset (cheap, O(N·d) or less);
-        D2, D3, D4, D7 use an asymmetric subsample of knn_subsample rows
-        (expensive k-NN / DBSCAN). All minority samples are preserved;
-        majority is randomly drawn to fill the remaining budget.
-        None = no subsampling (default).
+    svc_max_iter : int
+        Maximum LinearSVC iterations for L1 (C5).
+    tau : float
+        Dominance threshold of the signature rule (C7).
+    tau_prime : float
+        Threshold for the Signature V qualifier (C7).
+    chunk_size : int
+        Maximum number of neighbour queries sent to a tree at once.
+
+    Raises
+    ------
+    ValueError
+        If random_state, scaling, n_max or n_subsamples is invalid.
     """
 
     def __init__(
         self,
         weights: tuple[float, ...] = DEFAULT_WEIGHTS,
+        *,
+        random_state: int = DEFAULT_RANDOM_STATE,
+        scaling: str = DEFAULT_SCALING,
+        n_max: int = DEFAULT_N_MAX,
+        n_subsamples: int = DEFAULT_N_SUBSAMPLES,
+        n_jobs: int | None = None,
         k_neighbors: int = DEFAULT_K,
         dbscan_min_samples: int = DEFAULT_DBSCAN_MIN_SAMPLES,
         dbscan_eps: float | None = None,
-        n1_max_exact: int = DEFAULT_N1_MAX_EXACT,
-        large_n_subsample: int = DEFAULT_LARGE_N_SUBSAMPLE,
-        random_state: int | None = None,
         d2_weights: tuple[float, float, float] = DEFAULT_D2_WEIGHTS,
         svc_max_iter: int = DEFAULT_SVC_MAX_ITER,
-        knn_subsample: int | None = None,
+        tau: float = SIGNATURE_TAU,
+        tau_prime: float = SIGNATURE_TAU_PRIME,
+        chunk_size: int = DEFAULT_QUERY_CHUNK_SIZE,
     ) -> None:
-        """Store configuration; all parameters are forwarded unchanged to the computation stages."""
-        self._weights = weights
+        """Validate and store configuration; nothing is computed until a run method is called."""
+        if scaling not in SCALING_OPTIONS:
+            raise ValueError(f"scaling must be one of {SCALING_OPTIONS}, got {scaling!r}")
+        if n_max < 10:
+            raise ValueError(f"n_max must be >= 10, got {n_max}")
+        if n_subsamples < 1:
+            raise ValueError(f"n_subsamples must be >= 1, got {n_subsamples}")
+        self._weights = tuple(weights)
+        self._random_state = validate_random_state(random_state)
+        self._scaling = scaling
+        self._n_max = int(n_max)
+        self._n_subsamples = int(n_subsamples)
+        self._n_jobs = n_jobs
         self._k = k_neighbors
         self._dbscan_min_samples = dbscan_min_samples
         self._dbscan_eps = dbscan_eps
-        self._n1_max_exact = n1_max_exact
-        self._large_n_subsample = large_n_subsample
-        self._random_state = random_state
         self._d2_weights = d2_weights
         self._svc_max_iter = svc_max_iter
-        self._knn_subsample = knn_subsample
+        self._tau = tau
+        self._tau_prime = tau_prime
+        self._chunk_size = chunk_size
 
     # ------------------------------------------------------------------
     # Public interface
@@ -99,10 +176,6 @@ class CIPAPipeline:
     def run(self, dataset: CIPADataset) -> CIPAResult:
         """Execute the full CIPA pipeline: C → I → P → A.
 
-        Fits a single k-NN model shared by D2, D3, and D7.
-        All seven dimensions are computed, then aggregated into DS,
-        profiled into a Signature, and mapped to Action recommendations.
-
         Parameters
         ----------
         dataset : CIPADataset
@@ -110,6 +183,7 @@ class CIPAPipeline:
         Returns
         -------
         CIPAResult
+            With ``action`` populated and the run record in ``metadata``.
 
         Raises
         ------
@@ -117,23 +191,10 @@ class CIPAPipeline:
             If dataset fails validation (propagated from CIPADataset).
         """
         from cipa.action import compute_action
-        from cipa.indexing import compute_difficulty_score
-        from cipa.profiling import compute_profile
 
-        logger.info("CIPAPipeline.run: dataset=%s (N=%d, d=%d, IR=%.2f)",
-                    dataset.name, dataset.N, dataset.d, dataset.IR)
-
-        dims = self._compute_dimensions(dataset)
-        ds = compute_difficulty_score(dims, self._weights)
-        profile = compute_profile(ds)
-        action = compute_action(profile, ds, dataset)
-
-        return CIPAResult(
-            dataset_name=dataset.name,
-            difficulty_score=ds,
-            profile=profile,
-            action=action,
-        )
+        result = self.run_scoring_only(dataset)
+        result.action = compute_action(result.profile, result.difficulty_score, dataset)
+        return result
 
     def run_dimensions_only(
         self, dataset: CIPADataset
@@ -151,13 +212,11 @@ class CIPAPipeline:
         tuple of 7 DimensionResult
             Ordered (D1, D2, D3, D4, D5, D6, D7).
         """
-        return self._compute_dimensions(dataset)
+        dims, _ = self._characterize(dataset)
+        return dims
 
-    def run_scoring_only(self, dataset: CIPADataset) -> DifficultyScore:
-        """Run Stages C and I (Characterization + Indexing). Returns the Difficulty Score.
-
-        Skips the Profiling and Action stages. Useful when only the scalar DS
-        value is needed.
+    def run_scoring_only(self, dataset: CIPADataset) -> CIPAResult:
+        """Run Stages C, I and P. Returns everything except the Action protocol.
 
         Parameters
         ----------
@@ -165,145 +224,230 @@ class CIPAPipeline:
 
         Returns
         -------
-        DifficultyScore
-            value   : DS ∈ [0, 1]
-            band    : "Low" | "Moderate" | "High" | "Extreme"
-            weights : weights used for aggregation
-            dimensions : the seven DimensionResult objects
+        CIPAResult
+            ``difficulty_score`` (DS, band, weights and the seven dimensions
+            with IQR, components and protocol metadata), ``profile``
+            (signature and qualifier), ``metadata`` (run record) and
+            ``action=None``. ``to_dict()`` is JSON-serializable.
         """
         from cipa.indexing import compute_difficulty_score
+        from cipa.profiling import compute_profile
 
-        dims = self._compute_dimensions(dataset)
-        return compute_difficulty_score(dims, self._weights)
+        logger.info("CIPAPipeline: dataset=%s (N=%d, d=%d, IR=%.2f)",
+                    dataset.name, dataset.N, dataset.d, dataset.IR)
+        dims, metadata = self._characterize(dataset)
+        ds = compute_difficulty_score(dims, self._weights)
+        profile = compute_profile(ds, tau=self._tau, tau_prime=self._tau_prime)
+        return CIPAResult(
+            dataset_name=dataset.name,
+            difficulty_score=ds,
+            profile=profile,
+            action=None,
+            metadata=metadata,
+        )
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _compute_dimensions(
+    def _characterize(
         self, dataset: CIPADataset
-    ) -> tuple[DimensionResult, ...]:
-        """Compute D1-D7, sharing a single k-NN fit for D2, D3, D7.
-
-        When knn_subsample is set and N > knn_subsample, selective subsampling
-        is applied: D1, D5, D6 run on the full dataset; D2, D3, D4, D7 run on
-        an asymmetrically subsampled dataset (all minority + sampled majority).
-        """
+    ) -> tuple[tuple[DimensionResult, ...], dict[str, Any]]:
+        """Compute D1–D7 under the 2.0.0 protocol and return them with the run record."""
+        from cipa import __version__
         from cipa._knn import _KNNCache
         from cipa.dimensions import (
             compute_d1,
             compute_d2,
             compute_d3,
-            compute_d4,
+            compute_d4_from_minority,
             compute_d5,
             compute_d6,
             compute_d7,
         )
+        from cipa.preprocessing import preprocess_dataset
 
-        # Selective subsampling for expensive k-NN / DBSCAN dimensions
-        if self._knn_subsample and dataset.N > self._knn_subsample:
-            ds_knn = _asymmetric_subsample(
-                dataset, self._knn_subsample, self._random_state
+        rs = self._random_state
+        t_start = perf_counter()
+        prepared, prep_info = preprocess_dataset(dataset, self._scaling)
+        t_prep = perf_counter() - t_start
+        n = prepared.N
+
+        def cache_for(ds: CIPADataset) -> _KNNCache:
+            """Lazily fitted k-NN index on ds."""
+            return _KNNCache(ds, k=self._k, n_jobs=self._n_jobs, chunk_size=self._chunk_size)
+
+        # D1, D5, D6: all N rows
+        d1 = _single("D1", lambda: compute_d1(prepared), n_used=n)
+        d5 = _single("D5", lambda: compute_d5(prepared, random_state=rs), n_used=n)
+        d6 = _single(
+            "D6", lambda: compute_d6(prepared, random_state=rs, n_jobs=self._n_jobs), n_used=n
+        )
+
+        # D3: every minority row queried against all N rows
+        full_cache = cache_for(prepared)
+        d3 = _single(
+            "D3", lambda: compute_d3(prepared, knn_cache=full_cache, k=self._k), n_used=n,
+        )
+        d3.metadata["n_queries"] = prepared.n_minority
+
+        # D2, D7: all rows, or IR-preserving draws of n_max rows (shared draws)
+        d2_runs: list[DimensionResult] = []
+        d7_runs: list[DimensionResult] = []
+        t2 = t7 = 0.0
+        seeds: list[int] = []
+        minority_used: list[int] = []
+        if n > self._n_max:
+            seeds = [derive_seed(rs, STREAM_D2_D7, i) for i in range(self._n_subsamples)]
+        for seed in seeds or [None]:
+            t0 = perf_counter()
+            if seed is None:
+                sub, cache = prepared, full_cache
+            else:
+                idx = stratified_indices(prepared.minority_mask, self._n_max, seed)
+                sub = prepared._subset(idx)
+                cache = cache_for(sub)
+            minority_used.append(sub.n_minority)
+            d2_runs.append(compute_d2(
+                sub, knn_cache=cache, k=self._k, weights=self._d2_weights, n_jobs=self._n_jobs,
+            ))
+            t1 = perf_counter()
+            d7_runs.append(compute_d7(
+                sub, svc_max_iter=self._svc_max_iter, random_state=rs, n_jobs=self._n_jobs,
+            ))
+            t2 += t1 - t0
+            t7 += perf_counter() - t1
+        n_used = n if not seeds else self._n_max
+        d2 = _aggregate("D2", d2_runs, seeds, n_used, t2)
+        d7 = _aggregate("D7", d7_runs, seeds, n_used, t7)
+        for dim in (d2, d7):
+            dim.metadata["n_minority_used"] = minority_used
+
+        # D4: all minority rows, or draws of n_max minority rows
+        t0 = perf_counter()
+        X_min = prepared.X_minority
+        d4_seeds: list[int] = []
+        if prepared.n_minority > self._n_max:
+            d4_seeds = [derive_seed(rs, STREAM_D4, i) for i in range(self._n_subsamples)]
+        d4_runs = [
+            compute_d4_from_minority(
+                X_min if seed is None
+                else X_min[minority_indices(prepared.n_minority, self._n_max, seed)],
+                dbscan_min_samples=self._dbscan_min_samples,
+                dbscan_eps=self._dbscan_eps,
+                n_jobs=self._n_jobs,
             )
-            logger.info(
-                "knn_subsample: N=%d → %d (minority kept=%d, majority sampled=%d)",
-                dataset.N, ds_knn.N, ds_knn.n_minority, ds_knn.n_majority,
-            )
-        else:
-            ds_knn = dataset
-
-        # D1, D5, D6: cheap — use full dataset
-        d1 = compute_d1(dataset)
-        d5 = compute_d5(dataset)
-        d6 = compute_d6(dataset, random_state=self._random_state)
-
-        # D2, D3, D4, D7: expensive k-NN / DBSCAN — use (possibly subsampled) dataset
-        cache = _KNNCache(ds_knn, k=self._k)
-        d2 = compute_d2(
-            ds_knn,
-            knn_cache=cache,
-            k=self._k,
-            weights=self._d2_weights,
-            n1_max_exact=self._n1_max_exact,
-            n1_subsample_size=self._large_n_subsample,
-            random_state=self._random_state,
-        )
-        d3 = compute_d3(ds_knn, knn_cache=cache, k=self._k)
-        d4 = compute_d4(
-            ds_knn,
-            dbscan_min_samples=self._dbscan_min_samples,
-            dbscan_eps=self._dbscan_eps,
-            random_state=self._random_state,
-        )
-        d7 = compute_d7(
-            ds_knn,
-            knn_cache=cache,
-            svc_max_iter=self._svc_max_iter,
-            n2_max_exact=self._n1_max_exact,
-            n2_subsample_size=self._large_n_subsample,
-            random_state=self._random_state,
+            for seed in d4_seeds or [None]
+        ]
+        d4 = _aggregate(
+            "D4", d4_runs, d4_seeds,
+            prepared.n_minority if not d4_seeds else self._n_max,
+            perf_counter() - t0,
         )
 
+        dims = (d1, d2, d3, d4, d5, d6, d7)
         logger.debug(
             "D1=%.4f D2=%.4f D3=%.4f D4=%.4f D5=%.4f D6=%.4f D7=%.4f",
-            d1.value, d2.value, d3.value, d4.value, d5.value, d6.value, d7.value,
+            *(d.value for d in dims),
         )
 
-        return (d1, d2, d3, d4, d5, d6, d7)
+        not_converged = sum(not r.components["converged"] for r in d7_runs)
+        if not_converged:
+            logger.warning("L1: %d of %d LinearSVC fits did not converge", not_converged, len(d7_runs))
+
+        metadata: dict[str, Any] = {
+            "cipa_version": __version__,
+            "random_state": rs,
+            "scaling": self._scaling,
+            "n_max": self._n_max,
+            "n_subsamples": self._n_subsamples,
+            "k_neighbors": self._k,
+            "svc_max_iter": self._svc_max_iter,
+            "N": n,
+            "d": prepared.d,
+            "n_minority": prepared.n_minority,
+            "n_majority": prepared.n_majority,
+            "IR": prepared.IR,
+            "minority_label": dataset.minority_label,
+            "majority_label": dataset.majority_label,
+            "minority_is_majority": dataset.minority_is_majority,
+            "preprocessing": prep_info,
+            "l1_fits": len(d7_runs),
+            "l1_not_converged": not_converged,
+            "time_seconds": {
+                "preprocessing": t_prep,
+                **{d.dimension_id: d.metadata["time_seconds"] for d in dims},
+                "total": perf_counter() - t_start,
+            },
+        }
+        return dims, metadata
 
 
-def _asymmetric_subsample(
-    dataset: CIPADataset,
-    n_target: int,
-    random_state: int | None,
-) -> CIPADataset:
-    """Return a new CIPADataset with at most n_target rows.
+def _single(
+    dimension_id: str,
+    compute: Callable[[], DimensionResult],
+    n_used: int,
+) -> DimensionResult:
+    """Run a dimension once on all its rows and attach the protocol metadata."""
+    t0 = perf_counter()
+    result = compute()
+    return _aggregate(dimension_id, [result], [], n_used, perf_counter() - t0)
 
-    Keeps all minority instances and randomly draws majority instances to fill
-    the remaining budget. This asymmetric strategy ensures minority coverage is
-    not reduced, which matters for k-NN and DBSCAN computations (D2, D3, D4, D7).
-    If the minority class alone exceeds n_target, falls back to proportional
-    stratified sampling across both classes.
 
-    Parameters
-    ----------
-    dataset : CIPADataset
-        Original dataset to subsample.
-    n_target : int
-        Target row count for the returned dataset.
-    random_state : int or None
-        Seed for the random number generator.
+def _aggregate(
+    dimension_id: str,
+    runs: list[DimensionResult],
+    seeds: list[int],
+    n_used: int,
+    elapsed: float,
+) -> DimensionResult:
+    """Combine one or more computations of a dimension into a single result.
 
-    Returns
-    -------
-    CIPADataset
-        Subsampled dataset with minority_label, majority_label, and name
-        preserved from the original.
+    A single computation is returned as is (IQR 0). With several draws, the
+    value and every numeric component are medians over the draws, with their
+    IQRs in ``metadata["components_iqr"]``; boolean components are True only
+    if True in every draw; other components (e.g. lists) are kept per draw in
+    ``metadata["components_per_subsample"]`` only.
     """
-    import numpy as np
+    protocol = {
+        "n_used": n_used,
+        "subsampled": bool(seeds),
+        "n_subsamples": len(runs),
+        "seeds": list(seeds),
+        "values": [r.value for r in runs],
+        "time_seconds": elapsed,
+    }
+    if len(runs) == 1:
+        run = runs[0]
+        assert run.dimension_id == dimension_id
+        return DimensionResult(
+            value=run.value,
+            dimension_id=dimension_id,
+            components=dict(run.components),
+            metadata={**run.metadata, **protocol},
+            iqr=0.0,
+        )
 
-    rng     = np.random.default_rng(random_state)
-    min_idx = np.where(dataset.y == dataset.minority_label)[0]
-    maj_idx = np.where(dataset.y == dataset.majority_label)[0]
-    n_min   = len(min_idx)
-
-    if n_min >= n_target:
-        n_keep_min = max(2, round(n_target * n_min / dataset.N))
-        n_keep_maj = n_target - n_keep_min
-        sel_min = rng.choice(min_idx, size=n_keep_min, replace=False)
-        sel_maj = rng.choice(maj_idx, size=min(n_keep_maj, len(maj_idx)), replace=False)
-    else:
-        n_keep_maj = n_target - n_min
-        sel_min    = min_idx
-        sel_maj    = rng.choice(maj_idx, size=min(n_keep_maj, len(maj_idx)), replace=False)
-
-    sel = np.concatenate([sel_min, sel_maj])
-    rng.shuffle(sel)
-
-    return CIPADataset(
-        X=dataset.X[sel],
-        y=dataset.y[sel],
-        minority_label=dataset.minority_label,
-        majority_label=dataset.majority_label,
-        name=dataset.name,
+    value, iqr = median_iqr(protocol["values"])
+    components: dict[str, Any] = {}
+    components_iqr: dict[str, float] = {}
+    per_subsample: dict[str, list[Any]] = {}
+    for key in runs[0].components:
+        values = [r.components[key] for r in runs]
+        per_subsample[key] = values
+        if all(isinstance(v, (bool, np.bool_)) for v in values):
+            components[key] = all(values)
+        elif all(isinstance(v, (int, float, np.integer, np.floating)) for v in values):
+            components[key], components_iqr[key] = median_iqr(values)
+    protocol.update({
+        "components_iqr": components_iqr,
+        "components_per_subsample": per_subsample,
+        "run_metadata": [r.metadata for r in runs],
+    })
+    return DimensionResult(
+        value=value,
+        dimension_id=dimension_id,
+        components=components,
+        metadata=protocol,
+        iqr=iqr,
     )

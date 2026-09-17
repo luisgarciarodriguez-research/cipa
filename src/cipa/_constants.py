@@ -37,21 +37,41 @@ SIGNATURE_NAMES: dict[str, str] = {
     "V": "Compound",
 }
 
-# Profiling thresholds (§3.3)
-ELEVATION_THRESHOLD: float = 0.55
-LOW_THRESHOLD: float = 0.25
-DOMINANCE_MARGIN: float = 0.10
+# Profiling rule (§3.3): D_i dominates if D_i > tau and D_i = max{D1, D2, D4, D5}.
+# The order of this tuple is the tie-break order when several share the maximum.
+SIGNATURE_CANDIDATES: tuple[tuple[str, str], ...] = (
+    ("D1", "I"),
+    ("D2", "II"),
+    ("D4", "III"),
+    ("D5", "IV"),
+)
+SIGNATURE_TAU: float = 0.50
+SIGNATURE_TAU_PRIME: float = 0.35
+SIGNATURE_V_QUALIFIERS: tuple[str, ...] = ("compound", "single", "low")
+
+# Reproducibility (C9): the pipeline never runs with random_state=None
+DEFAULT_RANDOM_STATE: int = 42
+
+# Preprocessing (C2)
+SCALING_OPTIONS: tuple[str, ...] = ("standard", "robust", "none")
+DEFAULT_SCALING: str = "standard"
+
+# Per-dimension subsampling protocol (C6)
+DEFAULT_N_MAX: int = 50_000
+DEFAULT_N_SUBSAMPLES: int = 5
 
 # k-NN defaults (§3.1)
 DEFAULT_K: int = 5
-DEFAULT_N1_MAX_EXACT: int = 50_000
-DEFAULT_LARGE_N_SUBSAMPLE: int = 10_000
+DEFAULT_QUERY_CHUNK_SIZE: int = 65_536
+
+# Exact Euclidean MST for N1 (C4): neighbours precomputed per instance
+DEFAULT_N1_NEIGHBORS: int = 16
 
 # DBSCAN defaults (§3.1, D4)
 DEFAULT_DBSCAN_MIN_SAMPLES: int = 3
 
 # SVC defaults (§3.1, D7)
-DEFAULT_SVC_MAX_ITER: int = 2_000
+DEFAULT_SVC_MAX_ITER: int = 10_000
 
 # D2 sub-weights: alpha (F3), beta (N1), gamma (kDN)
 DEFAULT_D2_WEIGHTS: tuple[float, float, float] = (1 / 3, 1 / 3, 1 / 3)

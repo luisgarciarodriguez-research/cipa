@@ -6,12 +6,11 @@ import numpy as np
 import pytest
 
 from cipa import CIPADataset
-from cipa._constants import DEFAULT_WEIGHTS
+from cipa._constants import DEFAULT_WEIGHTS, SIGNATURE_NAMES
 from cipa.action import compute_action
 from cipa.indexing import classify_band, compute_difficulty_score
 from cipa.profiling import compute_profile
-from cipa.types import DimensionResult, DifficultyScore
-
+from cipa.types import DifficultyScore, DimensionResult
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -141,64 +140,73 @@ class TestComputeDifficultyScore:
 # PROFILING — compute_profile
 # ===========================================================================
 
+# (D1, D2, D3, D4, D5, D6, D7) → (signature, dominant_dimension, qualifier)
+_SIGNATURE_CASES = {
+    # Dominance of each candidate
+    "D1 dominates":                 ((0.80, 0.30, 0.20, 0.30, 0.10, 0.20, 0.20), ("I", "D1", None)),
+    "D2 dominates":                 ((0.20, 0.70, 0.40, 0.30, 0.10, 0.60, 0.30), ("II", "D2", None)),
+    "D4 dominates":                 ((0.20, 0.30, 0.10, 0.65, 0.40, 0.20, 0.20), ("III", "D4", None)),
+    "D5 dominates":                 ((0.30, 0.30, 0.10, 0.20, 0.90, 0.95, 0.20), ("IV", "D5", None)),
+    "D1 max beats elevated D5":     ((0.70, 0.30, 0.20, 0.30, 0.60, 0.20, 0.20), ("I", "D1", None)),
+    "max only over D1 D2 D4 D5":    ((0.60, 0.30, 0.90, 0.30, 0.10, 0.20, 0.95), ("I", "D1", None)),
+    "just above tau":               ((0.10, 0.20, 0.10, 0.5000001, 0.10, 0.10, 0.10), ("III", "D4", None)),
+    # Ties at the maximum: D1 > D2 > D4 > D5
+    "tie D1 D2":                    ((0.60, 0.60, 0.10, 0.20, 0.20, 0.20, 0.20), ("I", "D1", None)),
+    "tie D2 D4":                    ((0.20, 0.70, 0.10, 0.70, 0.20, 0.20, 0.20), ("II", "D2", None)),
+    "tie D4 D5":                    ((0.20, 0.30, 0.10, 0.55, 0.55, 0.20, 0.20), ("III", "D4", None)),
+    "tie all four":                 ((0.60, 0.60, 0.10, 0.60, 0.60, 0.20, 0.20), ("I", "D1", None)),
+    # Exactly tau does not dominate
+    "tau exact single":             ((0.20, 0.50, 0.10, 0.30, 0.20, 0.20, 0.20), ("V", None, "single")),
+    "tau exact compound":           ((0.50, 0.20, 0.10, 0.50, 0.20, 0.20, 0.20), ("V", None, "compound")),
+    # D3, D6, D7 above tau never dominate
+    "D3 D6 D7 high":                ((0.30, 0.35, 0.90, 0.20, 0.10, 0.80, 0.70), ("V", None, "compound")),
+    "only D6 high":                 ((0.10, 0.20, 0.10, 0.30, 0.20, 0.95, 0.10), ("V", None, "single")),
+    # Qualifiers of V
+    "compound below tau":           ((0.40, 0.45, 0.10, 0.20, 0.20, 0.30, 0.20), ("V", None, "compound")),
+    "low with tau prime exact":     ((0.35, 0.35, 0.10, 0.20, 0.35, 0.30, 0.20), ("V", None, "low")),
+    "all zero":                     ((0.0,) * 7, ("V", None, "low")),
+}
+
+
 class TestComputeProfile:
-    def _profile(self, values: tuple[float, ...]):
+    def _profile(self, values: tuple[float, ...], **kwargs):
         ds = make_difficulty(values)
-        return compute_profile(ds)
+        return compute_profile(ds, **kwargs)
 
     def test_returns_complexity_profile(self):
         p = self._profile((0.5,) * 7)
         assert p.signature in {"I", "II", "III", "IV", "V"}
         assert len(p.vector) == 7
 
-    def test_signature_i_all_low(self):
-        """All D2-D7 < 0.25 → Signature I."""
-        p = self._profile((0.09, 0.08, 0.06, 0.03, 0.03, 0.05, 0.04))
-        assert p.signature == "I"
-        assert p.signature_name == "Imbalance-dominated"
+    @pytest.mark.parametrize("name", list(_SIGNATURE_CASES))
+    def test_signature_table(self, name):
+        values, (sig, dominant, qualifier) = _SIGNATURE_CASES[name]
+        p = self._profile(values)
+        assert (p.signature, p.dominant_dimension, p.qualifier) == (sig, dominant, qualifier)
+        assert p.signature_name == SIGNATURE_NAMES[sig]
 
-    def test_signature_iv_d5_dominates(self):
-        """D5 is max(D1-D5) and > 0.55 and > D2 + 0.10 → Sig. IV."""
-        p = self._profile((0.32, 0.58, 0.49, 0.31, 0.81, 0.40, 0.35))
-        assert p.signature == "IV"
-        assert p.signature_name == "Dimensionality-dominated"
-
-    def test_signature_iii_d4_dominates(self):
-        """D4 is max(D1-D5) and > 0.50 → Sig. III."""
-        p = self._profile((0.30, 0.41, 0.36, 0.62, 0.22, 0.30, 0.25))
-        assert p.signature == "III"
-        assert p.signature_name == "Fragmented"
-
-    def test_signature_ii_d2_elevated(self):
-        """D2 > 0.55, D2 >= D1 → Sig. II (TCGA-style with D2 high, no D5 spike)."""
-        p = self._profile((0.51, 0.71, 0.63, 0.52, 0.40, 0.50, 0.45))
-        assert p.signature == "II"
-        assert p.signature_name == "Overlap-dominated"
-
-    def test_signature_v_compound(self):
-        """Multiple dimensions elevated, no clear single dominant → Sig. V."""
+    def test_active_and_elevated_dimensions_sorted_descending(self):
         p = self._profile((0.89, 0.81, 0.78, 0.72, 0.12, 0.44, 0.68))
-        assert p.signature == "V"
-        assert p.signature_name == "Compound"
+        assert p.active_dimensions == ["D1", "D2", "D3", "D4", "D7"]
+        assert p.elevated_dimensions == ["D1", "D2", "D3", "D4", "D7", "D6"]
 
-    def test_dominant_dimensions_correct(self):
-        """Dims ≥ 0.55 should appear in dominant_dimensions, sorted descending."""
-        p = self._profile((0.89, 0.81, 0.78, 0.72, 0.12, 0.44, 0.68))
-        assert "D1" in p.dominant_dimensions
-        assert "D2" in p.dominant_dimensions
-        assert "D5" not in p.dominant_dimensions  # 0.12 < 0.55
-        # sorted descending by value
-        vals = [p.vector[int(d[1]) - 1] for d in p.dominant_dimensions]
-        assert vals == sorted(vals, reverse=True)
-
-    def test_no_dominant_dims_when_all_low(self):
-        p = self._profile((0.09, 0.08, 0.06, 0.03, 0.03, 0.05, 0.04))
-        assert p.dominant_dimensions == []
+    def test_thresholds_are_configurable(self):
+        values = (0.45, 0.30, 0.10, 0.20, 0.20, 0.20, 0.20)
+        assert self._profile(values).signature == "V"
+        p = self._profile(values, tau=0.40, tau_prime=0.25)
+        assert (p.signature, p.tau, p.tau_prime) == ("I", 0.40, 0.25)
+        low = self._profile((0.30, 0.30, 0.1, 0.1, 0.1, 0.1, 0.1), tau_prime=0.30)
+        assert low.qualifier == "low"
 
     def test_vector_matches_input(self):
         values = (0.3, 0.5, 0.4, 0.2, 0.6, 0.3, 0.4)
         p = self._profile(values)
         assert p.vector == pytest.approx(values, abs=1e-9)
+
+    def test_to_dict_contains_qualifier(self):
+        d = self._profile((0.1,) * 7).to_dict()
+        assert d["signature"] == "V" and d["qualifier"] == "low"
+        assert d["tau"] == 0.50 and d["tau_prime"] == 0.35
 
 
 # ===========================================================================

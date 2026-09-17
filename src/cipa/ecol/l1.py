@@ -26,22 +26,27 @@ from sklearn.exceptions import ConvergenceWarning
 from sklearn.metrics import accuracy_score
 from sklearn.svm import LinearSVC
 
+from cipa._constants import DEFAULT_SVC_MAX_ITER
+
 logger = logging.getLogger(__name__)
 
 
 def compute_l1(
     X: np.ndarray,
     y: np.ndarray,
-    max_iter: int = 2_000,
+    max_iter: int = DEFAULT_SVC_MAX_ITER,
     random_state: int | None = None,
 ) -> tuple[float, bool]:
     """Compute L1: Non-linearity of the linear classifier (ECoL measure).
 
-    Trains a LinearSVC with balanced class weights on the full dataset and
+    Trains a LinearSVC with balanced class weights on the given data and
     measures its training error. A high error rate indicates that no linear
     hyperplane can separate the classes well, implying a complex or non-linear
-    decision boundary. If the SVC does not converge within max_iter, a fallback
-    value of 0.5 is returned and converged is set to False.
+    decision boundary.
+
+    The error rate of the fitted model is always returned (C5). If LinearSVC
+    stops at ``max_iter`` without converging, the error of that last iterate
+    is still used and ``converged`` is False; there is no fixed fallback value.
 
     Parameters
     ----------
@@ -57,8 +62,7 @@ def compute_l1(
     Returns
     -------
     l1 : float
-        L1 ∈ [0, 1]. Higher = more non-linear boundary. Returns 0.5 on
-        non-convergence.
+        L1 ∈ [0, 1]. Higher = more non-linear boundary.
     converged : bool
         True if LinearSVC converged within max_iter.
     """
@@ -68,19 +72,17 @@ def compute_l1(
         random_state=random_state,
         dual="auto",
     )
-    converged = True
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         svc.fit(X, y)
-        if any(issubclass(w.category, ConvergenceWarning) for w in caught):
-            converged = False
+    converged = not any(issubclass(w.category, ConvergenceWarning) for w in caught)
 
     if not converged:
         logger.warning(
-            "L1: LinearSVC did not converge after %d iterations. Using fallback L1=0.5.",
+            "L1: LinearSVC did not converge after %d iterations; "
+            "using the training error of the last iterate.",
             max_iter,
         )
-        return 0.5, False
 
     error_rate = 1.0 - float(accuracy_score(y, svc.predict(X)))
-    return float(np.clip(error_rate, 0.0, 1.0)), True
+    return float(np.clip(error_rate, 0.0, 1.0)), converged

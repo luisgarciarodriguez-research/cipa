@@ -22,11 +22,7 @@ import logging
 
 import numpy as np
 
-from cipa._constants import (
-    DEFAULT_LARGE_N_SUBSAMPLE,
-    DEFAULT_N1_MAX_EXACT,
-    DEFAULT_SVC_MAX_ITER,
-)
+from cipa._constants import DEFAULT_SVC_MAX_ITER
 from cipa.dataset import CIPADataset
 from cipa.ecol.l1 import compute_l1
 from cipa.ecol.n2 import compute_n2
@@ -39,9 +35,8 @@ def compute_d7(
     dataset: CIPADataset,
     knn_cache: object | None = None,
     svc_max_iter: int = DEFAULT_SVC_MAX_ITER,
-    n2_max_exact: int = DEFAULT_N1_MAX_EXACT,
-    n2_subsample_size: int = DEFAULT_LARGE_N_SUBSAMPLE,
     random_state: int | None = None,
+    n_jobs: int | None = None,
 ) -> DimensionResult:
     """Compute D7: Boundary Complexity = (L1 + N2norm) / 2.
 
@@ -63,33 +58,24 @@ def compute_d7(
         Accepted for API consistency with D2/D3; N2 performs its own
         nearest-neighbor queries and does not use this cache.
     svc_max_iter : int
-        Maximum iterations for LinearSVC. Non-convergence triggers a fallback
-        L1 = 0.5.
-    n2_max_exact : int
-        Maximum N for exact N2 computation. Larger datasets are subsampled.
-    n2_subsample_size : int
-        Subsample size used when N > n2_max_exact.
+        Maximum iterations for LinearSVC. If it is reached, L1 is still the
+        training error of the last iterate and ``converged`` is False (C5).
     random_state : int or None
-        Seed for LinearSVC and N2 subsampling.
+        Seed for LinearSVC.
+    n_jobs : int or None
+        Parallel jobs for the N2 neighbour queries.
 
     Returns
     -------
     DimensionResult
         value      : D7 ∈ [0, 1]. Higher = more complex boundary.
-        components : {"L1", "N2norm", "N2_raw"}
-        metadata   : {"svc_converged", "random_state"}
+        components : {"L1", "N2norm", "N2_raw", "converged"}
+        metadata   : {"svc_converged", "svc_max_iter", "random_state"}
     """
     l1_val, converged = compute_l1(dataset.X, dataset.y,
                                    max_iter=svc_max_iter, random_state=random_state)
 
-    n2norm, _n2_sub = compute_n2(
-        dataset.X, dataset.y,
-        minority_label=dataset.minority_label,
-        majority_label=dataset.majority_label,
-        max_exact=n2_max_exact,
-        subsample_size=n2_subsample_size,
-        random_state=random_state,
-    )
+    n2norm = compute_n2(dataset.X, dataset.y, n_jobs=n_jobs)
 
     raw = (l1_val + n2norm) / 2.0
     value = float(np.clip(raw, 0.0, 1.0))
@@ -100,6 +86,7 @@ def compute_d7(
 
     return DimensionResult(
         value=value, dimension_id="D7",
-        components={"L1": l1_val, "N2norm": n2norm, "N2_raw": N2_raw},
-        metadata={"svc_converged": converged, "random_state": random_state},
+        components={"L1": l1_val, "N2norm": n2norm, "N2_raw": N2_raw, "converged": converged},
+        metadata={"svc_converged": converged, "svc_max_iter": svc_max_iter,
+                  "random_state": random_state},
     )

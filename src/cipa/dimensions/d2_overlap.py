@@ -22,12 +22,7 @@ import logging
 
 import numpy as np
 
-from cipa._constants import (
-    DEFAULT_D2_WEIGHTS,
-    DEFAULT_K,
-    DEFAULT_LARGE_N_SUBSAMPLE,
-    DEFAULT_N1_MAX_EXACT,
-)
+from cipa._constants import DEFAULT_D2_WEIGHTS, DEFAULT_K
 from cipa.dataset import CIPADataset
 from cipa.ecol.f3 import compute_f3
 from cipa.ecol.n1 import compute_n1
@@ -41,9 +36,7 @@ def compute_d2(
     knn_cache: object | None = None,
     k: int = DEFAULT_K,
     weights: tuple[float, float, float] = DEFAULT_D2_WEIGHTS,
-    n1_max_exact: int = DEFAULT_N1_MAX_EXACT,
-    n1_subsample_size: int = DEFAULT_LARGE_N_SUBSAMPLE,
-    random_state: int | None = None,
+    n_jobs: int | None = None,
 ) -> DimensionResult:
     """Compute D2: Class Overlap = alpha·F3 + beta·N1 + gamma·kDN.
 
@@ -51,9 +44,14 @@ def compute_d2(
     - F3  (Fisher discriminant ratio): feature-range overlap on the most
            discriminative feature.
     - N1  (MST boundary fraction): proportion of instances adjacent to a
-           class boundary in the minimum spanning tree.
+           class boundary in the exact Euclidean minimum spanning tree.
     - kDN (k-NN disagreement): fraction of k nearest neighbors with a
-           different class label, averaged over all instances.
+           different class label, averaged over all instances. Each instance
+           is excluded from its own neighbourhood by index; exact duplicates
+           with another label count as disagreeing neighbours.
+
+    All three are computed on the rows of ``dataset``; subsampling, if any, is
+    decided by ``CIPAPipeline`` (C6).
 
     Parameters
     ----------
@@ -66,19 +64,15 @@ def compute_d2(
         Number of neighbors for kDN. Ignored when knn_cache is provided.
     weights : tuple of 3 floats (alpha, beta, gamma)
         Weights for (F3, N1, kDN). Must sum to 1.
-    n1_max_exact : int
-        Maximum N for exact MST computation. Larger datasets are subsampled.
-    n1_subsample_size : int
-        Subsample size used when N > n1_max_exact.
-    random_state : int or None
-        Seed for subsampling reproducibility.
+    n_jobs : int or None
+        Parallel jobs for the neighbour queries of N1 and kDN.
 
     Returns
     -------
     DimensionResult
         value      : D2 ∈ [0, 1]. Higher = more class overlap.
         components : {"F3", "N1", "kDN", "alpha", "beta", "gamma"}
-        metadata   : {"k", "n1_subsampled"}
+        metadata   : {"k"}
     """
     alpha, beta, gamma = weights
     if abs(sum(weights) - 1.0) > 1e-9:
@@ -88,19 +82,12 @@ def compute_d2(
     F3 = compute_f3(dataset.X, dataset.y)
 
     # N1
-    N1, n1_sub = compute_n1(
-        dataset.X, dataset.y,
-        minority_label=dataset.minority_label,
-        majority_label=dataset.majority_label,
-        max_exact=n1_max_exact,
-        subsample_size=n1_subsample_size,
-        random_state=random_state,
-    )
+    N1 = compute_n1(dataset.X, dataset.y, n_jobs=n_jobs)
 
     # kDN via k-NN cache
     if knn_cache is None:
         from cipa._knn import _KNNCache
-        knn_cache = _KNNCache(dataset, k=k)
+        knn_cache = _KNNCache(dataset, k=k, n_jobs=n_jobs)
 
     _, indices = knn_cache.query_all()
     # indices shape: (N, k_actual); use min(k, available) columns
@@ -117,5 +104,5 @@ def compute_d2(
         value=value,
         dimension_id="D2",
         components={"F3": F3, "N1": N1, "kDN": kDN, "alpha": alpha, "beta": beta, "gamma": gamma},
-        metadata={"k": k, "n1_subsampled": n1_sub},
+        metadata={"k": k},
     )

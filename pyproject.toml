@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cipa"
-version = "1.2.0"
+version = "2.0.0rc1"
 description = "CIPA: A Multi-Domain Statistical Framework for Characterizing Imbalanced Datasets and Computing a Difficulty Score"
 authors = [
     { name = "Luis García Rodríguez", email = "luis.garcia@unam.edu" },
@@ -81,10 +81,13 @@ ignore = [
     "E501",   # line too long — handled by formatter
     "N803",   # argument name should be lowercase (math vars like X, N, IR are OK)
     "N806",   # variable in function should be lowercase (same)
+    "RUF001", # ambiguous unicode — σ, −, ×, ≤ follow the paper's notation on purpose
+    "RUF002",
+    "RUF003",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["N802", "N803", "N806"]  # test functions may use math naming
+"tests/**" = ["N801", "N802", "N803", "N806"]  # test names may use math and task IDs (TestT0701_...)
 "src/cipa/dataset.py" = ["N802"]       # X, N, IR, X_minority, X_majority are mathematical API names from the paper
 
 [tool.ruff.format]

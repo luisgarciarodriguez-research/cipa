@@ -19,6 +19,7 @@ License: MIT — see LICENSE file for full terms.
 from __future__ import annotations
 
 import logging
+import warnings
 
 import numpy as np
 
@@ -35,7 +36,9 @@ class CIPADataset:
     y : np.ndarray, shape (N,)
         Binary label vector. Exactly two unique values.
     minority_label : int or bool
-        Label identifying C+ (the minority class).
+        Label identifying C+ (the class of interest, normally the minority).
+        It is always taken as declared: the dataset never swaps the roles of
+        the two labels, even when the declared minority is more frequent.
     majority_label : int or bool
         Label identifying C- (the majority class).
     name : str or None
@@ -45,6 +48,14 @@ class CIPADataset:
     ------
     ValueError
         If the input data fails validation (X shape, NaN/Inf, label count, or class sizes).
+
+    Warns
+    -----
+    UserWarning
+        If the declared minority class has more instances than the declared
+        majority class. The labels are kept as declared and
+        ``minority_is_majority`` is True, which the pipeline records in the
+        result metadata.
     """
 
     def __init__(
@@ -105,6 +116,15 @@ class CIPADataset:
         self._n_minority = n_minority
         self._n_majority = n_majority
 
+        if n_minority > n_majority:
+            message = (
+                f"Declared minority_label {minority_label!r} has {n_minority} instances, "
+                f"more than majority_label {majority_label!r} ({n_majority}). "
+                "The labels are kept as declared; check the label mapping."
+            )
+            logger.warning("CIPADataset(name=%r): %s", name, message)
+            warnings.warn(message, UserWarning, stacklevel=2)
+
     @classmethod
     def from_arrays(
         cls,
@@ -113,6 +133,12 @@ class CIPADataset:
         name: str | None = None,
     ) -> CIPADataset:
         """Convenience constructor: auto-detects minority label by frequency.
+
+        .. deprecated:: 2.0.0
+            Detecting the minority by frequency inverted PaySim after
+            subsampling in the COMIA 2026 results. Construct ``CIPADataset``
+            with an explicit ``minority_label`` and ``majority_label`` instead.
+            ``CIPAPipeline`` never calls this method.
 
         The minority class is the less frequent class.
 
@@ -135,6 +161,12 @@ class CIPADataset:
             If y does not have exactly two unique values, or both classes have
             equal frequency (ambiguous minority detection).
         """
+        warnings.warn(
+            "CIPADataset.from_arrays is deprecated since cipa 2.0.0: pass "
+            "minority_label and majority_label explicitly to CIPADataset.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         y_arr = np.asarray(y)
         unique, counts = np.unique(y_arr, return_counts=True)
         if len(unique) != 2:
@@ -200,6 +232,11 @@ class CIPADataset:
         return self._n_majority / self._n_minority
 
     @property
+    def minority_is_majority(self) -> bool:
+        """True if the declared minority class outnumbers the declared majority class."""
+        return self._n_minority > self._n_majority
+
+    @property
     def minority_mask(self) -> np.ndarray:
         """Boolean mask of shape (N,) that is True for minority class instances."""
         return self._minority_mask
@@ -218,6 +255,48 @@ class CIPADataset:
     def X_majority(self) -> np.ndarray:
         """Feature matrix rows belonging to the majority class, shape (n_majority, d)."""
         return self._X[self._majority_mask]
+
+    # ------------------------------------------------------------------
+    # Internal constructors used by the pipeline
+    # ------------------------------------------------------------------
+
+    def _with_features(self, X: np.ndarray) -> CIPADataset:
+        """Return a copy with a transformed feature matrix and the same labels.
+
+        Skips label validation (already done on ``self``) so the
+        minority-is-majority warning is not repeated.
+        """
+        if X.ndim != 2 or X.shape[0] != self.N or X.shape[1] < 1:
+            raise ValueError(f"Transformed X has invalid shape {X.shape} for N={self.N}")
+        new = object.__new__(CIPADataset)
+        new.__dict__.update(self.__dict__)
+        new._X = np.asarray(X, dtype=np.float64)
+        return new
+
+    def _subset(self, indices: np.ndarray) -> CIPADataset:
+        """Return the rows ``indices`` as a new dataset with the same label roles.
+
+        Raises
+        ------
+        ValueError
+            If the subset has fewer than 2 minority instances or N < 10.
+        """
+        y = self._y[indices]
+        minority_mask = y == self._minority_label
+        n_minority = int(minority_mask.sum())
+        if n_minority < 2:
+            raise ValueError(f"n_minority must be >= 2, got {n_minority}")
+        if len(y) < 10:
+            raise ValueError(f"Dataset must have N >= 10 instances, got {len(y)}")
+        new = object.__new__(CIPADataset)
+        new.__dict__.update(self.__dict__)
+        new._X = self._X[indices]
+        new._y = y
+        new._minority_mask = minority_mask
+        new._majority_mask = ~minority_mask
+        new._n_minority = n_minority
+        new._n_majority = len(y) - n_minority
+        return new
 
     def __repr__(self) -> str:
         """Return a compact one-line representation with key dataset statistics."""

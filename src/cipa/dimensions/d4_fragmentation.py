@@ -36,6 +36,7 @@ def compute_d4(
     dbscan_min_samples: int = DEFAULT_DBSCAN_MIN_SAMPLES,
     dbscan_eps: float | None = None,
     random_state: int | None = None,
+    n_jobs: int | None = None,
 ) -> DimensionResult:
     """Compute D4: Sub-concept Fragmentation.
 
@@ -63,7 +64,9 @@ def compute_d4(
         DBSCAN eps. None triggers adaptive eps estimation from the minority
         k-distance distribution.
     random_state : int or None
-        Currently unused; reserved for future reproducibility hooks.
+        Currently unused; DBSCAN is deterministic. Kept for API symmetry.
+    n_jobs : int or None
+        Parallel jobs for the neighbour queries of the eps estimate and DBSCAN.
 
     Returns
     -------
@@ -73,8 +76,42 @@ def compute_d4(
                       "n_noise_points", "cluster_sizes"}
         metadata   : {"eps_used", "min_samples", "eps_adaptive"}
     """
-    X_min = dataset.X_minority
-    n_min = dataset.n_minority
+    return compute_d4_from_minority(
+        dataset.X_minority,
+        dbscan_min_samples=dbscan_min_samples,
+        dbscan_eps=dbscan_eps,
+        n_jobs=n_jobs,
+    )
+
+
+def compute_d4_from_minority(
+    X_min: np.ndarray,
+    dbscan_min_samples: int = DEFAULT_DBSCAN_MIN_SAMPLES,
+    dbscan_eps: float | None = None,
+    n_jobs: int | None = None,
+) -> DimensionResult:
+    """Compute D4 directly on minority-class rows.
+
+    Same computation as ``compute_d4``; used by ``CIPAPipeline`` to run D4 on
+    subsamples of the minority class when |C+| > n_max (C6).
+
+    Parameters
+    ----------
+    X_min : np.ndarray, shape (n_minority, d)
+        Minority-class feature rows.
+    dbscan_min_samples : int
+        DBSCAN min_samples parameter.
+    dbscan_eps : float or None
+        DBSCAN eps. None triggers adaptive eps estimation.
+    n_jobs : int or None
+        Parallel jobs for the neighbour queries of the eps estimate and DBSCAN.
+
+    Returns
+    -------
+    DimensionResult
+        See ``compute_d4``.
+    """
+    n_min = len(X_min)
     eps_adaptive = dbscan_eps is None
 
     if n_min < dbscan_min_samples:
@@ -89,7 +126,9 @@ def compute_d4(
 
     # Adaptive eps: median distance to min_samples-th neighbor
     if eps_adaptive:
-        nn = NearestNeighbors(n_neighbors=dbscan_min_samples, algorithm="ball_tree").fit(X_min)
+        nn = NearestNeighbors(
+            n_neighbors=dbscan_min_samples, algorithm="ball_tree", n_jobs=n_jobs
+        ).fit(X_min)
         dists, _ = nn.kneighbors(X_min)
         eps = float(np.median(dists[:, -1]))
         if eps == 0.0:
@@ -99,7 +138,7 @@ def compute_d4(
 
     def _run_dbscan(e: float) -> np.ndarray:
         """Run DBSCAN on the minority feature matrix with the given eps; return cluster labels."""
-        return DBSCAN(eps=e, min_samples=dbscan_min_samples).fit_predict(X_min)
+        return DBSCAN(eps=e, min_samples=dbscan_min_samples, n_jobs=n_jobs).fit_predict(X_min)
 
     labels = _run_dbscan(eps)
 

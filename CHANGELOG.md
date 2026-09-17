@@ -6,6 +6,174 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [2.0.0rc1] — 2026-09-16
+
+First release candidate of 2.0.0, prepared for CIPA Extended. **The formulas
+of v1.1.0 are unchanged**; the values change because of how the data reach
+them (scaling, per-dimension subsampling, duplicates), how L1 reports
+non-convergence and how signatures are assigned. `2.0.0` will be tagged after
+the CIPA Extended pilot (runtime and scaling sensitivity), which may still
+adjust the subsampling protocol.
+
+### Unchanged formulas
+
+D1 = 1 − H(Y); D2 = (F3 + N1 + kDN)/3 with kDN over all instances (k = 5);
+D3 = (B + 2R + 3O)/(3·|C+|) (k = 5); D4 = ECindex·√(n_clusters/|C+|) with
+DBSCAN on the minority (`min_samples` = 3, eps = median distance to the 2nd
+neighbour, noise = singletons, eps doubled once if all noise); D5 = normalised
+spectral entropy of PCA; D6 = 1 − Ī/H(Y) with `mutual_info_classif`;
+D7 = (L1 + N2/(1+N2))/2 with `LinearSVC(class_weight="balanced")`;
+DS = Σ wᵢDᵢ and the Low/Moderate/High/Extreme bands.
+
+`tests/regression/test_regression_v1_2_1.py` checks that, on duplicate-free
+data with `scaling="none"`, no subsampling and the same seed, D1–D7 equal the
+values frozen from the `v1.2.1` tag (exact equality; D7 too because L1
+converged in every case). On the real datasets, the eight COMIA benchmarks
+that were not subsampled (Breast Cancer W., PIMA, SVMGUIDE1, Yeast-ME3,
+Ecoli-iMU, TCGA-BRCA, CWRU, SEU Gearbox) also reproduce the published D1–D7
+and DS to four decimals with `scaling="none"`.
+
+### Changed — corrections
+
+- **C1 · Explicit minority class.** `CIPADataset` takes the class roles as
+  declared. If the declared minority outnumbers the declared majority it logs
+  and emits a `UserWarning`, never swaps the labels, and the pipeline records
+  `minority_is_majority` in `CIPAResult.metadata`.
+  `CIPADataset.from_arrays` (minority by frequency) is deprecated with a
+  `DeprecationWarning` and no longer used anywhere in the pipeline.
+  *Effect:* none on correctly labelled data; prevents the PaySim inversion.
+- **C2 · Constant columns out and scaling.** New `scaling` parameter
+  (`"standard"` default, `"robust"`, `"none"`) applied once per dataset to all
+  N rows, before any dimension and any subsampling (`cipa.preprocessing`).
+  Constant columns (max = min) are dropped first and reported by index.
+  `"robust"` divides by the IQR, or by σ where IQR = 0 (reported), and is meant
+  for sensitivity analysis only.
+  *Effect:* N1, kDN, D3, D4, D5, L1 and N2 no longer depend on units.
+  D5 changes most: it now measures correlation structure, and on weakly
+  correlated feature sets the standardised spectrum is nearly flat, so D5
+  rises (PIMA 0.23 → 0.93). With z-score, 7 of the 8 full-N COMIA datasets
+  become Signature IV. D6 no longer averages the zero MI of constant columns.
+  D1 and F3 are unaffected.
+- **C3 · Neighbours that tolerate duplicates.** Self-exclusion is by index
+  (`cipa._knn.kneighbors_excluding_self`), not by dropping column 0; exact
+  duplicates of other rows remain neighbours. Applies to kDN (D2), D3 and N2.
+  *Effect:* only on data with exact duplicates, where kDN and D3 could count
+  the instance itself as a neighbour and miss a twin with another label.
+- **C4 · N1 without a dense matrix.** New
+  `cipa.ecol.euclidean_minimum_spanning_tree`: exact Euclidean MST by Borůvka
+  over precomputed neighbour lists, O(N·k) memory (v1.2.1 built
+  `squareform(pdist(X))`, about 20 GB at N = 50,000). Zero-length edges are
+  valid, so identical rows with different labels are both borderline (scipy's
+  MST treated 0 entries as missing edges). Ties are broken by the key
+  (length, min(i, j), max(i, j)).
+  *Effect:* identical to the dense method on duplicate-free data; on data
+  with duplicates N1 can rise.
+- **C5 · L1 convergence.** `max_iter` default 2,000 → 10,000 (`svc_max_iter`).
+  L1 is always the training error obtained; the fixed 0.5 fallback is gone.
+  D7 components include `converged`; `CIPAResult.metadata` reports
+  `l1_fits` and `l1_not_converged`.
+  *Effect:* D7 changes only where LinearSVC did not converge in v1.2.1.
+- **C6 · Per-dimension subsampling.** Replaces `knn_subsample`, the asymmetric
+  subsample (all minority + majority fill) and the internal N1/N2 subsampling
+  with one protocol (`n_max` = 50,000, `n_subsamples` = 5):
+  D1, D5, D6 on all N; D3 with every minority row queried against all N;
+  D4 on all minority rows, or `n_subsamples` draws of `n_max` minority rows
+  if |C+| > `n_max`; D2 and D7 on all N if N ≤ `n_max`, otherwise on
+  `n_subsamples` shared stratified draws of `n_max` rows that keep the IR
+  (±1 row). With draws, each dimension and each numeric component is the
+  median, with its IQR (`DimensionResult.iqr`,
+  `metadata["components_iqr"]`); DS uses the medians. Each `DimensionResult`
+  records `n_used`, `n_subsamples`, `seeds`, `values` and `time_seconds`.
+  `n_jobs` and `chunk_size` are accepted for neighbour queries.
+  *Effect:* D1 reflects the real IR (CreditCard 0.717 published → 0.982 on
+  full N); D2/D7 keep the real class proportion instead of an enriched
+  minority, so large datasets no longer look easier.
+- **C7 · Signatures follow the paper.** `compute_profile` implements
+  "Dᵢ dominates if Dᵢ > τ = 0.50 and Dᵢ = max{D1, D2, D4, D5}" (I–IV for D1,
+  D2, D4, D5; V when none dominates), with ties resolved D1 > D2 > D4 > D5.
+  Signature V carries a qualifier over all seven dimensions — `compound`
+  (≥ 2 > τ′ = 0.35), `single` (exactly one) or `low` (none) — which closes the
+  case the paper leaves uncovered. **The qualifier is a proposal pending
+  confirmation by the author before 2.0.0.** τ and τ′ are parameters.
+  The 1.x priority rule (0.25/0.55 thresholds, D5 − D2 margin) is removed.
+  *Effect:* on the 13 published COMIA profiles, 5 change signature
+  (IEEE-CIS V → I, CreditCard V → I, PaySim V → IV, SEU Gearbox V → I,
+  CWRU V → I).
+- **C8 · Action protocol unchanged.** `cipa.action` was not modified and
+  still uses its 1.x thresholds. It consumes the signature, so its
+  recommendations change with C7. **Known effect, not corrected** in this
+  release.
+- **C9 · Determinism.** `random_state` defaults to 42 and must be a
+  non-negative integer (`None` raises `ValueError`). Draw seeds derive from it
+  through `numpy.random.SeedSequence`; the integer is passed to
+  `mutual_info_classif`, `LinearSVC` and PCA.
+
+### Changed — API (breaking)
+
+- `CIPAPipeline`: parameters after `weights` are keyword-only. New
+  `scaling`, `n_max`, `n_subsamples`, `n_jobs`, `tau`, `tau_prime`,
+  `chunk_size`; removed `knn_subsample`, `n1_max_exact`, `large_n_subsample`.
+  `random_state` default `None` → 42.
+- `run_scoring_only` returns a `CIPAResult` with `profile` and
+  `action=None` (was a `DifficultyScore`), so one call yields DS, band,
+  signature and qualifier.
+- `CIPAResult`: `action` may be `None`; new `metadata` (class counts,
+  `minority_is_majority`, preprocessing, protocol, L1 convergence, timings).
+- `DimensionResult`: new `iqr` field (serialised by `to_dict`).
+- `ComplexityProfile`: `dominant_dimensions` replaced by
+  `dominant_dimension`, `qualifier`, `active_dimensions` (> τ),
+  `elevated_dimensions` (> τ′), `tau`, `tau_prime`.
+- `compute_n1` and `compute_n2` return a float (no subsampling flag) and take
+  `n_jobs`/`chunk_size` instead of subsampling parameters. `compute_d2` and
+  `compute_d7` drop their N1/N2 subsampling parameters; `compute_d4`,
+  `compute_d6` and `compute_d7` accept `n_jobs`; `compute_d5` accepts
+  `random_state`. New `compute_d4_from_minority`.
+- `_constants`: removed `ELEVATION_THRESHOLD`, `LOW_THRESHOLD`,
+  `DOMINANCE_MARGIN`, `DEFAULT_N1_MAX_EXACT`, `DEFAULT_LARGE_N_SUBSAMPLE`;
+  `DEFAULT_SVC_MAX_ITER` 2,000 → 10,000.
+
+### Added
+
+- Tests: v1.2.1 regression (`tests/regression/`, with the script that freezes
+  the reference from the tag), exact MST against the dense method and a keyed
+  Kruskal reference with duplicates and ties, bounded memory at N = 50,000,
+  duplicate-aware neighbours, preprocessing, the subsampling protocol, the
+  signature case table and the 13 COMIA profiles under the paper rule.
+- `pyproject.toml`: ruff ignores RUF001–RUF003 (the paper's σ, −, × notation)
+  and N801 in tests; `ruff check src tests` is clean.
+
+### Notes
+
+- **Version metadata of 1.2.1.** The `v1.2.1` tag (`6ea039f`, 2026-05-08,
+  submitted with the COMIA 2026 paper) kept `version = "1.2.0"` in
+  `pyproject.toml` and `cipa.__version__` and has no entry of its own: its two
+  commits after `v1.2.0` (`4c26fa6`, `6ea039f`) added
+  `experiments/weight_sensitivity.py`, docstrings and documentation fixes, and
+  are listed under [1.2.0] below. No computed value differs between the two
+  tags. Installing `v1.2.1` reports 1.2.0; the tag was not rewritten.
+- `experiments/` scripts reproduce the COMIA results and target the 1.x API
+  (`from_arrays`, published signatures); run them against the `v1.2.1` tag.
+- `specs/` are out of date with respect to the code (SPEC-02, 05, 06, 08, 10
+  and the 2.0.0 API). Pending.
+
+### Findings about the values published in COMIA 2026
+
+- **PaySim was computed with the classes inverted.** The 10,000-row
+  subsample left fraud as the majority and `from_arrays` picked the minority
+  by frequency: D1 = 0.3228 = 1 − H(0.1787).
+- **D1 was computed on the 10,000-row subsamples** for the six † datasets,
+  not on the real IR: CreditCard published D1 = 0.717; on the full N it is
+  0.982.
+- **IEEE-CIS kept 350 minority instances**, not all of them, according to the
+  review. Not verified.
+- **The paper and the code differ** in kDN (paper: minority only; code: all
+  instances), DBSCAN parameters (paper: MinPts = max(2, ⌈0.05·|C+|⌉); code:
+  `min_samples` = 3 and median 2nd-neighbour eps), the signature rule (code
+  before 2.0.0: priority rule with 0.25/0.55 thresholds) and the action
+  protocol thresholds. Published Table 3 comes from the code.
+
+---
+
 ## [1.2.0] — 2026-05-06
 
 ### Added

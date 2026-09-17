@@ -5,29 +5,28 @@ import pytest
 
 from cipa.dimensions import compute_d2, compute_d3, compute_d4, compute_d7
 
-
 # ---------------------------------------------------------------------------
 # D2 — Class Overlap
 # ---------------------------------------------------------------------------
 
 def test_d2_separable_is_low(perfectly_separable):
-    result = compute_d2(perfectly_separable, random_state=0)
+    result = compute_d2(perfectly_separable)
     assert result.dimension_id == "D2"
     assert result.value < 0.2
 
 
 def test_d2_overlapping_is_high(perfectly_overlapping):
-    result = compute_d2(perfectly_overlapping, random_state=0)
+    result = compute_d2(perfectly_overlapping)
     assert result.value > 0.4
 
 
 def test_d2_in_range(high_imbalance):
-    result = compute_d2(high_imbalance, random_state=0)
+    result = compute_d2(high_imbalance)
     assert 0.0 <= result.value <= 1.0
 
 
 def test_d2_invalid_weights_raise(perfectly_separable):
-    with pytest.raises(ValueError, match="sum to 1.0"):
+    with pytest.raises(ValueError, match=r"sum to 1\.0"):
         compute_d2(perfectly_separable, weights=(0.5, 0.5, 0.5))
 
 
@@ -136,3 +135,5 @@ def test_d7_components_present(perfectly_separable):
     result = compute_d7(perfectly_separable, random_state=0)
     assert "L1" in result.components
     assert "N2norm" in result.components
+    assert result.components["converged"] is True
+    assert result.metadata["svc_max_iter"] == 10_000
