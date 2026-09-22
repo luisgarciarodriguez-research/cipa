@@ -19,10 +19,16 @@ License: MIT — see LICENSE file for full terms.
 from __future__ import annotations
 
 import logging
+from time import perf_counter
 
 import numpy as np
 
-from cipa._constants import DEFAULT_D2_WEIGHTS, DEFAULT_K
+from cipa._constants import (
+    DEFAULT_D2_WEIGHTS,
+    DEFAULT_K,
+    DEFAULT_KNN_ALGORITHM,
+    DEFAULT_QUERY_CHUNK_SIZE,
+)
 from cipa.dataset import CIPADataset
 from cipa.ecol.f3 import compute_f3
 from cipa.ecol.n1 import compute_n1
@@ -37,6 +43,8 @@ def compute_d2(
     k: int = DEFAULT_K,
     weights: tuple[float, float, float] = DEFAULT_D2_WEIGHTS,
     n_jobs: int | None = None,
+    chunk_size: int = DEFAULT_QUERY_CHUNK_SIZE,
+    algorithm: str = DEFAULT_KNN_ALGORITHM,
 ) -> DimensionResult:
     """Compute D2: Class Overlap = alpha·F3 + beta·N1 + gamma·kDN.
 
@@ -72,19 +80,38 @@ def compute_d2(
     DimensionResult
         value      : D2 ∈ [0, 1]. Higher = more class overlap.
         components : {"F3", "N1", "kDN", "alpha", "beta", "gamma"}
-        metadata   : {"k"}
+        metadata   : {"k", "component_seconds"}
+
+    ``component_seconds`` times F3, N1 and kDN separately (2.0.0rc3), so a
+    bottleneck can be found without instrumenting from outside.
+
+    **The cost of building the neighbour index is charged to kDN**, the first
+    component here that touches it, and only when this call is what fits it.
+    Under ``CIPAPipeline`` the cache is usually already warm because D3 queried
+    it first, so kDN looks much cheaper there than when ``compute_d2`` is
+    called on its own. Compare the two figures only within one call path.
     """
     alpha, beta, gamma = weights
     if abs(sum(weights) - 1.0) > 1e-9:
         raise ValueError(f"D2 weights must sum to 1.0, got {sum(weights):.10f}")
 
+    timings: dict[str, float] = {}
+
     # F3
+    t0 = perf_counter()
     F3 = compute_f3(dataset.X, dataset.y)
+    timings["F3"] = perf_counter() - t0
 
     # N1
-    N1 = compute_n1(dataset.X, dataset.y, n_jobs=n_jobs)
+    t0 = perf_counter()
+    N1 = compute_n1(
+        dataset.X, dataset.y, n_jobs=n_jobs, chunk_size=chunk_size, algorithm=algorithm
+    )
+    timings["N1"] = perf_counter() - t0
 
-    # kDN via k-NN cache
+    # kDN via k-NN cache. Fitting the index, if this call is what triggers it,
+    # is charged here; see the note in the docstring.
+    t0 = perf_counter()
     if knn_cache is None:
         from cipa._knn import _KNNCache
         knn_cache = _KNNCache(dataset, k=k, n_jobs=n_jobs)
@@ -94,6 +121,7 @@ def compute_d2(
     k_actual = min(k, indices.shape[1])
     neighbor_labels = dataset.y[indices[:, :k_actual]]
     kDN = float(np.mean(neighbor_labels != dataset.y[:, None]))
+    timings["kDN"] = perf_counter() - t0
 
     raw = alpha * F3 + beta * N1 + gamma * kDN
     value = float(np.clip(raw, 0.0, 1.0))
@@ -104,5 +132,5 @@ def compute_d2(
         value=value,
         dimension_id="D2",
         components={"F3": F3, "N1": N1, "kDN": kDN, "alpha": alpha, "beta": beta, "gamma": gamma},
-        metadata={"k": k},
+        metadata={"k": k, "component_seconds": {k_: round(v, 4) for k_, v in timings.items()}},
     )

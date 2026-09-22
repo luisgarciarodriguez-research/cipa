@@ -234,20 +234,21 @@ def test_n2_all_inter_distances_zero_returns_zero():
 
 def test_l1_linearly_separable_is_low():
     X, y = two_gaussians(sep=10.0)
-    l1, converged = compute_l1(X, y, random_state=0)
+    l1, converged, n_iter = compute_l1(X, y, random_state=0)
     assert converged
     assert l1 < 0.1
+    assert 0 < n_iter < 10_000
 
 
 def test_l1_overlapping_is_higher():
     X, y = overlapping()
-    l1, _ = compute_l1(X, y, random_state=0)
+    l1, _, _ = compute_l1(X, y, random_state=0)
     assert l1 > 0.2
 
 
 def test_l1_in_range():
     X, y = two_gaussians(sep=1.0)
-    l1, _ = compute_l1(X, y, random_state=0)
+    l1, _, _ = compute_l1(X, y, random_state=0)
     assert 0.0 <= l1 <= 1.0
 
 
@@ -255,6 +256,20 @@ def test_l1_default_max_iter_is_10000():
     import inspect
 
     assert inspect.signature(compute_l1).parameters["max_iter"].default == 10_000
+
+
+def test_l1_default_tol_is_exposed():
+    """svc_tol is part of what the reported L1 means when the fit stops at the cap."""
+    import inspect
+
+    assert inspect.signature(compute_l1).parameters["tol"].default == 1e-4
+
+
+def test_l1_a_looser_tolerance_stops_sooner():
+    X, y = two_gaussians(sep=1.0, n0=200, n1=200)
+    _, _, tight = compute_l1(X, y, random_state=0, tol=1e-6)
+    _, _, loose = compute_l1(X, y, random_state=0, tol=1e-1)
+    assert loose <= tight
 
 
 def test_l1_non_convergence_reports_error_rate_not_fixed_half():
@@ -268,8 +283,10 @@ def test_l1_non_convergence_reports_error_rate_not_fixed_half():
     y = (X[:, 0] + rng.normal(scale=200, size=300) > 0).astype(int)
     y[:10] = 1
 
-    l1, converged = compute_l1(X, y, max_iter=1, random_state=0)
+    l1, converged, n_iter = compute_l1(X, y, max_iter=1, random_state=0)
     assert converged is False
+    # n_iter pins the cap: this is what tells a consumer the fit is incomplete.
+    assert n_iter == 1
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         svc = LinearSVC(class_weight="balanced", max_iter=1, random_state=0, dual="auto").fit(X, y)

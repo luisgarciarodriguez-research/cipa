@@ -23,10 +23,64 @@ import logging
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
-from cipa._constants import DEFAULT_QUERY_CHUNK_SIZE
+from cipa._constants import (
+    DEFAULT_KNN_ALGORITHM,
+    DEFAULT_QUERY_CHUNK_SIZE,
+    KD_TREE_MAX_DIM,
+    KNN_ALGORITHM_OPTIONS,
+)
 from cipa.dataset import CIPADataset
 
 logger = logging.getLogger(__name__)
+
+
+def select_knn_algorithm(n_features: int, algorithm: str = DEFAULT_KNN_ALGORITHM) -> str:
+    """Resolve the neighbour search algorithm for a matrix of ``n_features`` columns.
+
+    Single point of choice for every neighbour query in the package: the D2/D3
+    cache (``_KNNCache``), the minimum spanning tree of N1 and the intra/inter
+    distances of N2. Before 2.0.0rc3 each picked its own, and two of the three
+    were fixed on ``ball_tree``.
+
+    The ``"auto"`` rule is ``kd_tree`` up to ``KD_TREE_MAX_DIM`` (15) features
+    and ``brute`` above it. The threshold is the one N1 already applied; what
+    changes in 2.0.0rc3 is the choice above it, on measured grounds: on a
+    50,000 x 432 subsample of the study's hardest dataset, fitting plus 50,000
+    queries took 122.2 s with ``ball_tree`` and 6.0 s with ``brute``, and the
+    neighbours agreed exactly — identical order on 100 % of the rows, identical
+    sets, and a maximum distance difference of 1.08e-05, which is the rounding
+    of the dot-product formulation. On 2.5M x 70 the gap was 68 ms versus 11 ms
+    per query on a single core.
+
+    Brute force materialises a distance block per query chunk instead of
+    walking a tree, so ``chunk_size`` is what bounds its memory; it is passed
+    unchanged to ``kneighbors_excluding_self``.
+
+    Parameters
+    ----------
+    n_features : int
+        Number of columns of the matrix the index is fitted on.
+    algorithm : str
+        One of ``KNN_ALGORITHM_OPTIONS``. Anything other than ``"auto"`` is
+        returned unchanged, which is how a caller pins the pre-rc3 behaviour.
+
+    Returns
+    -------
+    str
+        An algorithm name scikit-learn's ``NearestNeighbors`` accepts.
+
+    Raises
+    ------
+    ValueError
+        If ``algorithm`` is not one of ``KNN_ALGORITHM_OPTIONS``.
+    """
+    if algorithm not in KNN_ALGORITHM_OPTIONS:
+        raise ValueError(
+            f"algorithm must be one of {KNN_ALGORITHM_OPTIONS}, got {algorithm!r}"
+        )
+    if algorithm != "auto":
+        return algorithm
+    return "kd_tree" if n_features <= KD_TREE_MAX_DIM else "brute"
 
 
 def kneighbors_excluding_self(
@@ -95,7 +149,7 @@ class _KNNCache:
         self,
         dataset: CIPADataset,
         k: int,
-        algorithm: str = "ball_tree",
+        algorithm: str = DEFAULT_KNN_ALGORITHM,
         n_jobs: int | None = None,
         chunk_size: int = DEFAULT_QUERY_CHUNK_SIZE,
     ) -> None:
@@ -109,7 +163,9 @@ class _KNNCache:
             Number of neighbors to retrieve (excluding self). Clamped to N-1
             if k >= dataset.N.
         algorithm : str
-            Neighbor search algorithm passed to sklearn NearestNeighbors.
+            One of ``KNN_ALGORITHM_OPTIONS``. Resolved once here through
+            ``select_knn_algorithm`` against the dataset's number of features;
+            ``"ball_tree"`` reproduces the behaviour before 2.0.0rc3.
         n_jobs : int or None
             Parallel jobs for neighbour queries (sklearn convention).
         chunk_size : int
@@ -123,7 +179,7 @@ class _KNNCache:
 
         self._dataset = dataset
         self._k = k
-        self._algorithm = algorithm
+        self._algorithm = select_knn_algorithm(dataset.d, algorithm)
         self._n_jobs = n_jobs
         self._chunk_size = chunk_size
         self._nn: NearestNeighbors | None = None
@@ -135,6 +191,11 @@ class _KNNCache:
     def k(self) -> int:
         """Number of neighbours returned per query (after clamping to N-1)."""
         return self._k
+
+    @property
+    def algorithm(self) -> str:
+        """Neighbour search algorithm actually in use, after resolving ``"auto"``."""
+        return self._algorithm
 
     def _fitted(self) -> NearestNeighbors:
         """Fit the neighbour index on first use and return it."""

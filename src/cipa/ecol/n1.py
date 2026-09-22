@@ -24,7 +24,12 @@ import numpy as np
 from sklearn.metrics import DistanceMetric
 from sklearn.neighbors import BallTree, KDTree, NearestNeighbors
 
-from cipa._constants import DEFAULT_N1_NEIGHBORS, DEFAULT_QUERY_CHUNK_SIZE
+from cipa._constants import (
+    DEFAULT_KNN_ALGORITHM,
+    DEFAULT_N1_NEIGHBORS,
+    DEFAULT_QUERY_CHUNK_SIZE,
+    KD_TREE_MAX_DIM,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +46,7 @@ def compute_n1(
     n_neighbors: int = DEFAULT_N1_NEIGHBORS,
     n_jobs: int | None = None,
     chunk_size: int = DEFAULT_QUERY_CHUNK_SIZE,
+    algorithm: str = DEFAULT_KNN_ALGORITHM,
 ) -> float:
     """Compute N1: Fraction of Borderline Points via the MST (ECoL measure).
 
@@ -74,7 +80,8 @@ def compute_n1(
         N1 ∈ [0, 1]. Higher = more borderline instances = more overlap.
     """
     rows, cols, _ = euclidean_minimum_spanning_tree(
-        X, n_neighbors=n_neighbors, n_jobs=n_jobs, chunk_size=chunk_size
+        X, n_neighbors=n_neighbors, n_jobs=n_jobs, chunk_size=chunk_size,
+        algorithm=algorithm,
     )
     y = np.asarray(y)
     cross = y[rows] != y[cols]
@@ -89,6 +96,7 @@ def euclidean_minimum_spanning_tree(
     n_neighbors: int = DEFAULT_N1_NEIGHBORS,
     n_jobs: int | None = None,
     chunk_size: int = DEFAULT_QUERY_CHUNK_SIZE,
+    algorithm: str = DEFAULT_KNN_ALGORITHM,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Exact Euclidean minimum spanning tree in O(N·n_neighbors) memory (C4).
 
@@ -136,7 +144,7 @@ def euclidean_minimum_spanning_tree(
     weights : np.ndarray of float, shape (N-1,)
         Euclidean length of each edge.
     """
-    from cipa._knn import kneighbors_excluding_self
+    from cipa._knn import kneighbors_excluding_self, select_knn_algorithm
 
     X = np.ascontiguousarray(X, dtype=np.float64)
     n = len(X)
@@ -144,8 +152,8 @@ def euclidean_minimum_spanning_tree(
         return np.empty(0, np.intp), np.empty(0, np.intp), np.empty(0)
 
     k = min(n_neighbors, n - 1)
-    algorithm = "kd_tree" if X.shape[1] <= 15 else "ball_tree"
-    nn = NearestNeighbors(algorithm=algorithm, n_jobs=n_jobs).fit(X)
+    resolved = select_knn_algorithm(X.shape[1], algorithm)
+    nn = NearestNeighbors(algorithm=resolved, n_jobs=n_jobs).fit(X)
     knn_dist, knn_idx = kneighbors_excluding_self(nn, X, np.arange(n), k, chunk_size)
     # Every point farther than the last listed neighbour is at least this far
     radius = np.full(n, np.inf) if k == n - 1 else knn_dist[:, -1]
@@ -302,7 +310,12 @@ def _exact_foreign_neighbours(
                 partners[sub] = (dist == w[:, None]).argmax(axis=1)
         else:
             others = np.flatnonzero(comp != label)
-            tree = (KDTree if X.shape[1] <= 15 else BallTree)(X[others])
+            # Not routed through select_knn_algorithm: this path needs
+            # query_radius to resolve exact ties (see below), which the tree
+            # classes provide and a brute-force index does not. The threshold
+            # is shared so the rule lives in one place even though the choice
+            # cannot be. See the CHANGELOG entry for 2.0.0rc3.
+            tree = (KDTree if X.shape[1] <= KD_TREE_MAX_DIM else BallTree)(X[others])
             k = min(2, len(others))
             for start in range(0, len(queries), chunk_size):
                 sub = group[start:start + chunk_size]

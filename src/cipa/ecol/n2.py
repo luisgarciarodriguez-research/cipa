@@ -23,9 +23,49 @@ import logging
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
-from cipa._constants import DEFAULT_QUERY_CHUNK_SIZE
+from cipa._constants import DEFAULT_KNN_ALGORITHM, DEFAULT_QUERY_CHUNK_SIZE
 
 logger = logging.getLogger(__name__)
+
+# Safety factor over the analytic rounding bound below. The measured worst
+# case across the study's dimensionalities sits at about 1.8x that bound
+# (d = 5000: 1.907e-06 observed against 1.054e-06 predicted), so 16 leaves an
+# order of magnitude of headroom. It only decides when the exact check below
+# is worth running, never its outcome, so it is not a tunable of the method.
+_ROUNDING_MARGIN: float = 16.0
+
+
+def _duplicate_rounding_bound(X: np.ndarray) -> float:
+    """Largest ``sum(inter)`` still consistent with every inter distance being 0.
+
+    A brute-force index evaluates ``x.x - 2x.y + y.y`` rather than the norm of
+    the difference, so for two identical rows the cancellation can leave a tiny
+    positive value instead of an exact 0; a tree returns 0. The error scales
+    with the row magnitude, measured from 4.2e-08 at d = 6 to 1.9e-06 at
+    d = 5000, tracking ``|x| * sqrt(eps)``.
+
+    ``sum(inter)`` adds one such term per row, hence the factor of N.
+    """
+    if len(X) == 0:
+        return 0.0
+    max_norm = float(np.sqrt(np.max(np.sum(np.square(X), axis=1))))
+    return len(X) * max_norm * float(np.sqrt(np.finfo(np.float64).eps)) * _ROUNDING_MARGIN
+
+
+def _classes_coincide_exactly(X: np.ndarray, y: np.ndarray) -> bool:
+    """True when every row has an exact duplicate in the opposite class.
+
+    The structural reading of "all instances overlap exactly": it asks the
+    question of the data rather than of the distances, so the answer does not
+    depend on which neighbour algorithm produced them. Two rows are the same
+    point or they are not.
+    """
+    labels = np.unique(y)
+    if len(labels) != 2:
+        return False
+    _, row_id = np.unique(X, axis=0, return_inverse=True)
+    row_id = np.ravel(row_id)
+    return set(row_id[y == labels[0]].tolist()) == set(row_id[y == labels[1]].tolist())
 
 
 def compute_n2(
@@ -33,6 +73,7 @@ def compute_n2(
     y: np.ndarray,
     n_jobs: int | None = None,
     chunk_size: int = DEFAULT_QUERY_CHUNK_SIZE,
+    algorithm: str = DEFAULT_KNN_ALGORITHM,
 ) -> float:
     """Compute N2: Intra/Inter-class Distance Ratio, normalised (ECoL measure).
 
@@ -68,8 +109,9 @@ def compute_n2(
     float
         N2norm ∈ [0, 1). Higher = more class overlap = harder boundary.
     """
-    from cipa._knn import kneighbors_excluding_self
+    from cipa._knn import kneighbors_excluding_self, select_knn_algorithm
 
+    resolved = select_knn_algorithm(X.shape[1], algorithm)
     y = np.asarray(y)
     labels = np.unique(y)
     intra = np.full(len(X), np.inf)
@@ -80,12 +122,12 @@ def compute_n2(
         X_own = X[own_idx]
         X_other = X[y == other]
         if len(X_own) > 1:
-            nn = NearestNeighbors(algorithm="ball_tree", n_jobs=n_jobs).fit(X_own)
+            nn = NearestNeighbors(algorithm=resolved, n_jobs=n_jobs).fit(X_own)
             d, _ = kneighbors_excluding_self(
                 nn, X_own, np.arange(len(X_own)), 1, chunk_size
             )
             intra[own_idx] = d[:, 0]
-        nn_other = NearestNeighbors(algorithm="ball_tree", n_jobs=n_jobs).fit(X_other)
+        nn_other = NearestNeighbors(algorithm=resolved, n_jobs=n_jobs).fit(X_other)
         for start in range(0, len(X_own), chunk_size):
             d, _ = nn_other.kneighbors(X_own[start:start + chunk_size], n_neighbors=1)
             inter[own_idx[start:start + chunk_size]] = d[:, 0]
@@ -94,9 +136,25 @@ def compute_n2(
     sum_intra = float(np.sum(intra[finite]))
     sum_inter = float(np.sum(inter))
 
-    if sum_inter == 0.0:
-        logger.warning("N2: sum(inter_dists) = 0 (all instances overlap exactly). Returning N2norm=0.")
-        return 0.0
+    # A vanishing sum(inter) is only degenerate if the classes really do
+    # coincide. The bound decides when to ask; the exact check answers. A
+    # boundary that is minuscule but real must fall through to N2_raw, because
+    # near-coincident classes are the hardest case there is, not the easiest.
+    if sum_inter <= _duplicate_rounding_bound(X):
+        if _classes_coincide_exactly(X, y):
+            logger.warning(
+                "N2: every instance has an exact duplicate in the opposite class. "
+                "Returning N2norm=0."
+            )
+            return 0.0
+        logger.warning(
+            "N2: sum(inter_dists) = %.3e, at the rounding floor but the classes do "
+            "not coincide exactly; the boundary is real and N2norm will be near 1.",
+            sum_inter,
+        )
+        # No division guard is needed here: a sum of non-negative terms is 0
+        # only if every term is, which means every row does have an exact twin
+        # across the classes and the branch above already returned.
 
     N2_raw = sum_intra / sum_inter
     # Difficulty-oriented: separated classes → N2_raw small → N2norm small (easy)

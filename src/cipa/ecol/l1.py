@@ -26,7 +26,7 @@ from sklearn.exceptions import ConvergenceWarning
 from sklearn.metrics import accuracy_score
 from sklearn.svm import LinearSVC
 
-from cipa._constants import DEFAULT_SVC_MAX_ITER
+from cipa._constants import DEFAULT_SVC_MAX_ITER, DEFAULT_SVC_TOL
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,8 @@ def compute_l1(
     y: np.ndarray,
     max_iter: int = DEFAULT_SVC_MAX_ITER,
     random_state: int | None = None,
-) -> tuple[float, bool]:
+    tol: float = DEFAULT_SVC_TOL,
+) -> tuple[float, bool, int]:
     """Compute L1: Non-linearity of the linear classifier (ECoL measure).
 
     Trains a LinearSVC with balanced class weights on the given data and
@@ -58,6 +59,11 @@ def compute_l1(
         Maximum number of iterations for LinearSVC.
     random_state : int or None
         Seed for LinearSVC reproducibility.
+    tol : float
+        Stopping tolerance for LinearSVC (2.0.0rc3). Exposed because on the
+        study's hardest subsample the fit reaches ``max_iter`` without
+        converging, which makes the tolerance part of what the reported value
+        means rather than an implementation detail.
 
     Returns
     -------
@@ -65,12 +71,17 @@ def compute_l1(
         L1 ∈ [0, 1]. Higher = more non-linear boundary.
     converged : bool
         True if LinearSVC converged within max_iter.
+    n_iter : int
+        Iterations actually taken (2.0.0rc3). Equal to ``max_iter`` when the
+        fit stopped at the cap, which is how a consumer can tell an incomplete
+        fit from a converged one and say so in a manuscript.
     """
     svc = LinearSVC(
         class_weight="balanced",
         max_iter=max_iter,
         random_state=random_state,
         dual="auto",
+        tol=tol,
     )
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -84,5 +95,8 @@ def compute_l1(
             max_iter,
         )
 
+    n_iter_array = np.asarray(svc.n_iter_).ravel()
+    n_iter = int(n_iter_array[0]) if n_iter_array.size else 0
+
     error_rate = 1.0 - float(accuracy_score(y, svc.predict(X)))
-    return float(np.clip(error_rate, 0.0, 1.0)), converged
+    return float(np.clip(error_rate, 0.0, 1.0)), converged, n_iter

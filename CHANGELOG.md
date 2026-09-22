@@ -6,6 +6,163 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [2.0.0rc3] — 2026-09-22
+
+Third release candidate of 2.0.0. **Performance and convergence only**, from
+decision 6 of the CIPA Extended protocol: with rc2 the timings made Phase 2
+unaffordable, and L1 was reporting the training error of a fit that never
+converged, which is a validity problem before it is a slow one.
+
+No formula changes. The v1.2.1 regression stays exact for D1–D4, D6, D7 and
+`spectral_entropy_norm`. One value changes, in a degenerate case only, and is
+described under *Fixed*.
+
+### Added — one place that picks the neighbour algorithm
+
+- **`cipa._knn.select_knn_algorithm(n_features, algorithm="auto")`**. The rule
+  is `kd_tree` up to `KD_TREE_MAX_DIM` (15) features and `brute` above it. The
+  threshold is the one N1 already applied; what is new is the choice above it.
+
+  Measured on a 50,000 x 432 subsample of the study's hardest dataset, fitting
+  plus 50,000 queries: `ball_tree` 122.2 s, `brute` **6.0 s**, with identical
+  neighbours — same order on 100 % of rows, same sets, maximum distance
+  difference 1.08e-05. On 2.5M x 70, 68 ms versus 11 ms per query on one core.
+  `compute_n2` on 20,000 x 432: 17.1 s versus **1.4 s**, N2norm identical to
+  twelve decimals.
+- **`algorithm` on `CIPAPipeline`**, default `"auto"`, also accepted by
+  `compute_d2`, `compute_d7`, `compute_n1`, `compute_n2` and `_KNNCache`.
+  `"ball_tree"` reproduces rc2 exactly. The run record now carries `algorithm`,
+  `algorithm_resolved` and `chunk_size`.
+- **`svc_tol`** on `CIPAPipeline` and `compute_d7`, `tol` on `compute_l1`, with
+  `DEFAULT_SVC_TOL = 1e-4`. Exposed because on the hardest subsamples the fit
+  stops at the iteration cap, which makes the tolerance part of what the
+  reported L1 means rather than an implementation detail.
+- **`n_iter` in D7's components**, alongside `converged`, so a consumer can say
+  in a manuscript which datasets report the error of an incomplete fit.
+  `compute_l1` now returns `(l1, converged, n_iter)`; it returned a pair before.
+- **`component_seconds` in the metadata of D2 (F3, N1, kDN) and D7 (L1, N2)**.
+  Summed, not averaged, over subsamples, so it reconciles with `time_seconds`.
+  The index build is charged to kDN, the first component that touches it, and
+  only when that call is what fits it: under `CIPAPipeline` the cache is
+  usually warm because D3 queried it first, so kDN looks cheaper there than in
+  a standalone `compute_d2`. Compare the two only within one call path.
+- **`chunk_size` now reaches N1 and N2.** `compute_d2` and `compute_d7`
+  accepted it neither from the pipeline nor from a caller, so both measures
+  always used the default. This was a pre-existing gap, not a new parameter.
+
+### Changed
+
+- Default neighbour search above 15 features is now brute force, through the
+  rule above. `_KNNCache` defaulted to `ball_tree`, `n2` had two hard-coded
+  `ball_tree` instances and `n1` had its own inline rule; all three now resolve
+  through one function.
+
+### Fixed — N2's degeneracy guard no longer depends on the algorithm
+
+`compute_n2` returned 0 when `sum(inter_dists) == 0.0`, meaning every instance
+has an exact duplicate in the opposite class. Brute force evaluates
+`x.x - 2x.y + y.y` rather than the norm of the difference, so for an exact
+duplicate the cancellation can leave a tiny positive value where a tree returns
+0 — measured from 4.2e-08 at d = 6 to 1.9e-06 at d = 5000, tracking
+`|x| * sqrt(eps)`. Under brute force the guard therefore stopped firing and
+N2norm went from 0 to about 1 on a degenerate dataset.
+
+The guard now asks the question of the data instead of the distances: a bound
+decides when it is worth checking, and an exact structural check on duplicate
+rows across classes decides the answer. There is no tuned cliff — a badly
+chosen bound only runs the check more or less often, never changes its verdict.
+A boundary that is minuscule but real falls through to `N2_raw`, because
+near-coincident classes are the hardest case there is, not the easiest.
+
+This is the only value change in rc3, and only in the degenerate case.
+
+### Not changed, deliberately
+
+- **The DBSCAN neighbourhood of D4** (`d4_fragmentation.py`) keeps `ball_tree`.
+  Its adaptive `eps` is the median k-th distance and is guarded by
+  `if eps == 0.0`; under brute force that guard would stop firing on a dataset
+  with many duplicate minority rows, and DBSCAN would run with
+  `eps = 6e-08` instead of the fallback, changing clusters discretely rather
+  than in the last decimal. Its measured cost was 17.7 s, not a bottleneck.
+- **The Borůvka fallback in N1** (`_exact_foreign_neighbours`) keeps `KDTree`
+  and `BallTree`: it resolves exact ties with `query_radius`, which the tree
+  classes provide and a brute-force index does not. It shares
+  `KD_TREE_MAX_DIM` so the threshold lives in one place even though the choice
+  cannot.
+- **`DEFAULT_SVC_TOL` stays at 1e-4.** `1e-3` is the configuration that
+  converges (see below), but it moves `heterogeneous_scales` by 0.004 in L1 and
+  0.002 in D7, which breaks the v1.2.1 regression for that case. The package
+  exposes the parameter rather than changing what every consumer computes.
+
+### Measured — the L1 solver
+
+`dual="auto"` already resolves to `dual=False` for this shape, verified by
+comparing `coef_` after one iteration, so the rc1/rc2 baseline that fails to
+converge **is** the primal solver. On the reference subsample
+(50,000 x 432, minority 1,750, IR 27.6:1), `max_iter=10_000`, seed 42:
+
+| dual | tol | converged | n_iter | L1 | seconds |
+|---|---|---|---|---|---|
+| auto → False | 1e-4 | **no** | 10,000 (cap) | 0.16044 | 2,820.7 |
+| False | 1e-3 | **yes** | 3,091 | 0.16060 | 1,394.8 |
+| False | 1e-2 | yes | 352 | 0.16224 | 213.7 |
+| True | 1e-4 | no | 10,000 (cap) | 0.13770 | 615.1 |
+| True | 1e-3 | no | 10,000 (cap) | 0.13770 | 613.2 |
+| True | 1e-2 | no | 10,000 (cap) | 0.13770 | 615.6 |
+
+The baseline reproduces the published 0.16044 exactly. Times were measured with
+six fits running concurrently, so they are comparable to each other but not to
+the 4,288.7 s of the rc1 pilot, which ran uncontended; the iteration counts are
+comparable to anything.
+
+**The dual solver is not an option.** It never converges, and the tolerance
+makes no difference at all — all three values are identical because the
+stopping criterion never ends the fit, the cap always does. Its L1 sits 0.023
+below the converged answer: it is not reaching the same place faster.
+
+**`tol=1e-3` is the configuration to use, `tol=1e-2` is not.** Across ten small
+study datasets where rc2 converged, moving from 1e-4 to 1e-3 shifts L1 by at
+most 9.02e-04, with seven of ten bit-identical. `tol=1e-2` converges in 352
+iterations but on `heterogeneous_scales`, whose features are on deliberately
+different scales, it **reports convergence while landing somewhere else**:
+L1 0.13467 → 0.46600. Ill-conditioned data is where a loose tolerance lies, and
+it is where D7 is asked to work.
+
+The recommendation for CIPA Extended is to run with `svc_tol=1e-3`, set in its
+own protocol: it moves reported values, and how the extension treats an
+incomplete fit is a validity question rather than a packaging one.
+
+### Measured — peak memory
+
+`chunk_size` does **not** bound the memory of the brute-force search. Since
+scikit-learn 1.1, `kneighbors(algorithm="brute")` on float64 Euclidean data
+dispatches to the Cython `ArgKmin` reduction, which streams with a per-thread
+heap instead of materialising a `chunk_size x n_fit` block. A 65,536 x 50,000
+block would be 26 GB; the measured addition is 33 MiB. `chunk_size` bounds only
+the output arrays, `chunk x (k+1) x 8 x 2` bytes.
+
+Figures are process high-water marks (`VmHWM`), so they include the interpreter
+and the data as well as the search.
+
+| shape | data | peak before | peak during | added by the search |
+|---|---|---|---|---|
+| 50,000 x 432, 50,000 queries | 164.8 MB | 503.4 MiB | 535.8 MiB | 24.5–33.1 MiB |
+| 2,520,798 x 70, 425,741 queries | 1,346.3 MB | 1,750.3 MiB | **1,843.7 MiB** | 93.4 MiB |
+
+Varying `working_memory` from 128 to 4096 MiB changes nothing. Maximum observed
+across every configuration: **1,843.7 MiB**. If a future scikit-learn stops
+dispatching to `ArgKmin`, the fallback is `pairwise_distances_chunked` and this
+would need measuring again; `test_brute_force_euclidean_uses_the_argkmin_reduction`
+fails first.
+
+### Tests
+
+424 passing, coverage 97.71 %. New: `tests/unit/test_knn_algorithm.py` (52) and
+`tests/unit/test_component_timing.py` (6). Reproducible probes and their
+results in `tests/benchmarks/`.
+
+---
+
 ## [2.0.0rc2] — 2026-09-17
 
 Second release candidate of 2.0.0. **Only D5 changes**; everything else in

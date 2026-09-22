@@ -57,13 +57,16 @@ from cipa._constants import (
     DEFAULT_D2_WEIGHTS,
     DEFAULT_DBSCAN_MIN_SAMPLES,
     DEFAULT_K,
+    DEFAULT_KNN_ALGORITHM,
     DEFAULT_N_MAX,
     DEFAULT_N_SUBSAMPLES,
     DEFAULT_QUERY_CHUNK_SIZE,
     DEFAULT_RANDOM_STATE,
     DEFAULT_SCALING,
     DEFAULT_SVC_MAX_ITER,
+    DEFAULT_SVC_TOL,
     DEFAULT_WEIGHTS,
+    KNN_ALGORITHM_OPTIONS,
     SCALING_OPTIONS,
     SIGNATURE_TAU,
     SIGNATURE_TAU_PRIME,
@@ -116,12 +119,25 @@ class CIPAPipeline:
         (alpha, beta, gamma) for (F3, N1, kDN) in D2. Must sum to 1.
     svc_max_iter : int
         Maximum LinearSVC iterations for L1 (C5).
+    svc_tol : float
+        Stopping tolerance for LinearSVC (2.0.0rc3). Exposed alongside the cap
+        because on the hardest subsamples the fit stops at the cap, so the
+        tolerance is part of what the reported L1 means.
     tau : float
         Dominance threshold of the signature rule (C7).
     tau_prime : float
         Threshold for the Signature V qualifier (C7).
     chunk_size : int
-        Maximum number of neighbour queries sent to a tree at once.
+        Maximum number of neighbour queries sent to a tree at once. It also
+        bounds the memory of a brute-force search, which materialises a
+        distance block per chunk instead of walking a tree.
+    algorithm : {"auto", "ball_tree", "kd_tree", "brute"}
+        Neighbour search algorithm for D2 (kDN, N1), D3 and D7 (N2). The
+        default ``"auto"`` resolves per matrix through
+        ``cipa._knn.select_knn_algorithm``: kd_tree up to 15 features, brute
+        above. ``"ball_tree"`` reproduces the behaviour before 2.0.0rc3. The
+        DBSCAN neighbourhood of D4 and the Boruvka fallback of N1 are not
+        covered; see the CHANGELOG entry for 2.0.0rc3.
 
     Raises
     ------
@@ -143,13 +159,19 @@ class CIPAPipeline:
         dbscan_eps: float | None = None,
         d2_weights: tuple[float, float, float] = DEFAULT_D2_WEIGHTS,
         svc_max_iter: int = DEFAULT_SVC_MAX_ITER,
+        svc_tol: float = DEFAULT_SVC_TOL,
         tau: float = SIGNATURE_TAU,
         tau_prime: float = SIGNATURE_TAU_PRIME,
         chunk_size: int = DEFAULT_QUERY_CHUNK_SIZE,
+        algorithm: str = DEFAULT_KNN_ALGORITHM,
     ) -> None:
         """Validate and store configuration; nothing is computed until a run method is called."""
         if scaling not in SCALING_OPTIONS:
             raise ValueError(f"scaling must be one of {SCALING_OPTIONS}, got {scaling!r}")
+        if algorithm not in KNN_ALGORITHM_OPTIONS:
+            raise ValueError(
+                f"algorithm must be one of {KNN_ALGORITHM_OPTIONS}, got {algorithm!r}"
+            )
         if n_max < 10:
             raise ValueError(f"n_max must be >= 10, got {n_max}")
         if n_subsamples < 1:
@@ -165,9 +187,11 @@ class CIPAPipeline:
         self._dbscan_eps = dbscan_eps
         self._d2_weights = d2_weights
         self._svc_max_iter = svc_max_iter
+        self._svc_tol = svc_tol
         self._tau = tau
         self._tau_prime = tau_prime
         self._chunk_size = chunk_size
+        self._algorithm = algorithm
 
     # ------------------------------------------------------------------
     # Public interface
@@ -255,7 +279,7 @@ class CIPAPipeline:
     ) -> tuple[tuple[DimensionResult, ...], dict[str, Any]]:
         """Compute D1–D7 under the 2.0.0 protocol and return them with the run record."""
         from cipa import __version__
-        from cipa._knn import _KNNCache
+        from cipa._knn import _KNNCache, select_knn_algorithm
         from cipa.dimensions import (
             compute_d1,
             compute_d2,
@@ -275,7 +299,10 @@ class CIPAPipeline:
 
         def cache_for(ds: CIPADataset) -> _KNNCache:
             """Lazily fitted k-NN index on ds."""
-            return _KNNCache(ds, k=self._k, n_jobs=self._n_jobs, chunk_size=self._chunk_size)
+            return _KNNCache(
+                ds, k=self._k, algorithm=self._algorithm, n_jobs=self._n_jobs,
+                chunk_size=self._chunk_size,
+            )
 
         # D1, D5, D6: all N rows
         d1 = _single("D1", lambda: compute_d1(prepared), n_used=n)
@@ -310,10 +337,13 @@ class CIPAPipeline:
             minority_used.append(sub.n_minority)
             d2_runs.append(compute_d2(
                 sub, knn_cache=cache, k=self._k, weights=self._d2_weights, n_jobs=self._n_jobs,
+                chunk_size=self._chunk_size, algorithm=self._algorithm,
             ))
             t1 = perf_counter()
             d7_runs.append(compute_d7(
                 sub, svc_max_iter=self._svc_max_iter, random_state=rs, n_jobs=self._n_jobs,
+                chunk_size=self._chunk_size, algorithm=self._algorithm,
+                svc_tol=self._svc_tol,
             ))
             t2 += t1 - t0
             t7 += perf_counter() - t1
@@ -363,6 +393,10 @@ class CIPAPipeline:
             "n_subsamples": self._n_subsamples,
             "k_neighbors": self._k,
             "svc_max_iter": self._svc_max_iter,
+            "svc_tol": self._svc_tol,
+            "algorithm": self._algorithm,
+            "algorithm_resolved": select_knn_algorithm(prepared.d, self._algorithm),
+            "chunk_size": self._chunk_size,
             "N": n,
             "d": prepared.d,
             "n_minority": prepared.n_minority,
@@ -408,6 +442,10 @@ def _aggregate(
     IQRs in ``metadata["components_iqr"]``; boolean components are True only
     if True in every draw; other components (e.g. lists) are kept per draw in
     ``metadata["components_per_subsample"]`` only.
+
+    ``metadata["component_seconds"]`` is **summed**, not averaged, over the
+    draws (2.0.0rc3), so it is comparable with ``time_seconds``: both answer
+    how long this dimension took in total, one broken down and one not.
     """
     protocol = {
         "n_used": n_used,
@@ -417,6 +455,13 @@ def _aggregate(
         "values": [r.value for r in runs],
         "time_seconds": elapsed,
     }
+    per_component = [r.metadata.get("component_seconds") for r in runs]
+    if all(isinstance(c, dict) for c in per_component) and per_component:
+        totals: dict[str, float] = {}
+        for entry in per_component:
+            for name, seconds in entry.items():
+                totals[name] = totals.get(name, 0.0) + seconds
+        protocol["component_seconds"] = {n: round(v, 4) for n, v in totals.items()}
     if len(runs) == 1:
         run = runs[0]
         assert run.dimension_id == dimension_id

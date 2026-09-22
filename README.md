@@ -68,13 +68,13 @@ pip install -e ".[dev]"   # add test and lint tools
 
 ```bash
 python -c "import cipa; print(cipa.__version__)"
-# 2.0.0rc2
+# 2.0.0rc3
 ```
 
 To install a tagged release without touching other packages in the environment:
 
 ```bash
-pip install --no-deps "cipa @ git+https://github.com/luisgarciarodriguez-research/cipa@v2.0.0rc2"
+pip install --no-deps "cipa @ git+https://github.com/luisgarciarodriguez-research/cipa@v2.0.0rc3"
 ```
 
 ---
@@ -115,7 +115,7 @@ print("  Models       :", result.action.model_families[:2])
 print("  Validation   :", result.action.validation_protocol[:1])
 ```
 
-**Example output** (PIMA Diabetes, N=768, IR=1.9:1, cipa 2.0.0rc2 defaults):
+**Example output** (PIMA Diabetes, N=768, IR=1.9:1, cipa 2.0.0rc3 defaults):
 
 ```
 Difficulty Score : 0.385  (Moderate)
@@ -262,7 +262,7 @@ Preprocessing and model families are **signature-specific**; evaluation metrics 
 - **D2 ≥ 0.55** → add AUC-ROC to metrics
 - **D3 ≥ 0.55** → add Recall (minority) to metrics; add outlier removal before oversampling
 - **D4 ≥ 0.55** → validate that each CV fold contains all sub-concepts
-- **D5 ≥ 0.70** → mandatory dimensionality reduction before any resampling (with the 2.0.0rc2 D5 this means r₉₅ ≥ 2.33·|C₊|)
+- **D5 ≥ 0.70** → mandatory dimensionality reduction before any resampling (with the 2.0.0rc2+ D5 this means r₉₅ ≥ 2.33·|C₊|)
 - **DS ≥ 0.50** → add G-mean to metrics
 - **DS ≥ 0.75** → add MCC; use repeated stratified k-fold (5×10); add cost-sensitive learning
 
@@ -304,9 +304,11 @@ CIPAPipeline(
     dbscan_eps=None,          # eps for D4 (None = adaptive)
     d2_weights=(1/3,1/3,1/3), # (alpha, beta, gamma) for D2 sub-components
     svc_max_iter=10_000,      # LinearSVC iterations for L1
+    svc_tol=1e-4,             # LinearSVC stopping tolerance for L1
     tau=0.50,                 # dominance threshold (signatures)
     tau_prime=0.35,           # Signature V qualifier threshold
     chunk_size=65_536,        # neighbour queries per block
+    algorithm="auto",         # "auto" | "ball_tree" | "kd_tree" | "brute"
 )
 ```
 
@@ -431,7 +433,27 @@ print(json.dumps(result_dict, indent=2))
 
 - No computation builds an N×N matrix. N1 uses an exact Euclidean minimum spanning tree (Borůvka over precomputed neighbour lists) with O(N·k) memory; on N = 50,000 random points it takes about 0.3 s with d = 3, 8 s with d = 10 and 100 s with d = 70 on one core, almost all of it in the initial k-NN query.
 - The cost of D2/D7 is bounded by `n_max` × `n_subsamples`. D1, D5, D6 and D3 run on all N rows and dominate for very large datasets; use `n_jobs=-1`.
-- Timings per dimension are recorded in `result.metadata["time_seconds"]`.
+- Timings per dimension are in `result.metadata["time_seconds"]`. Since 2.0.0rc3, D2 and D7 also break that down per component in their `metadata["component_seconds"]` — F3, N1 and kDN for D2; L1 and N2 for D7 — summed over subsamples so the parts reconcile with the total.
+
+### Neighbour search (2.0.0rc3)
+
+`algorithm="auto"` picks `kd_tree` up to 15 features and **brute force** above it. Brute force is not a fallback here: above a handful of dimensions a tree degrades while a dense computation does not.
+
+| workload | `ball_tree` | `brute` |
+|---|---|---|
+| fit + 50,000 queries, 50,000 × 432 | 122.2 s | **6.0 s** |
+| one query, 2.5M × 70, single core | 68 ms | **11 ms** |
+| `compute_n2`, 20,000 × 432 | 17.1 s | **1.4 s** |
+
+Results agree: identical neighbour order on 100 % of rows, identical sets, maximum distance difference 1.08e-05, and N2norm identical to twelve decimals. Pass `algorithm="ball_tree"` to reproduce 2.0.0rc2 exactly.
+
+Memory is not a concern with brute force. On float64 Euclidean data scikit-learn dispatches to its `ArgKmin` reduction, which streams with a per-thread heap rather than materialising a `chunk_size × n_fit` block, so `chunk_size` bounds only the output arrays. The largest peak measured, on 425,741 queries against 2,520,798 × 70, was **1,843.7 MiB**, of which the search itself accounted for 93.4 MiB and the dataset for the rest.
+
+### L1 convergence (2.0.0rc3)
+
+On large, high-dimensional subsamples `LinearSVC` reaches `svc_max_iter` without converging, and L1 is then the training error of an incomplete fit. D7 now reports `n_iter` alongside `converged` so this is visible rather than silent.
+
+`svc_tol` is exposed for it. On the hardest subsample of CIPA Extended (50,000 × 432, IR 27.6:1) the default `1e-4` does not converge in 10,000 iterations, while `1e-3` converges in 3,091 and moves L1 by 1.6e-04. Do not go looser: at `1e-2` the fit reports convergence while landing elsewhere on ill-conditioned data (L1 0.135 → 0.466 on one regression case). Full tables in `CHANGELOG.md` and `tests/benchmarks/`.
 
 ---
 

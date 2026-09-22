@@ -75,6 +75,19 @@ DEFAULT_DBSCAN_MIN_SAMPLES: int = 3
 
 # SVC defaults (§3.1, D7)
 DEFAULT_SVC_MAX_ITER: int = 10_000
+# Exposed in 2.0.0rc3 alongside the iteration cap: on the study's hardest
+# subsample the fit stops at the cap without converging, so the tolerance has
+# to be visible rather than buried in scikit-learn's default.
+DEFAULT_SVC_TOL: float = 1e-4
 
 # D2 sub-weights: alpha (F3), beta (N1), gamma (kDN)
 DEFAULT_D2_WEIGHTS: tuple[float, float, float] = (1 / 3, 1 / 3, 1 / 3)
+
+# Neighbour search algorithm (2.0.0rc3). "auto" applies the rule in
+# ``cipa._knn.select_knn_algorithm``: kd_tree up to KD_TREE_MAX_DIM features,
+# brute force above it. The threshold keeps the rule n1 already used for the
+# minimum spanning tree; brute replaces ball_tree above it because it measured
+# 20x faster on the study's hardest subsample with identical neighbours.
+KNN_ALGORITHM_OPTIONS: tuple[str, ...] = ("auto", "ball_tree", "kd_tree", "brute")
+DEFAULT_KNN_ALGORITHM: str = "auto"
+KD_TREE_MAX_DIM: int = 15
